@@ -89,13 +89,13 @@ canvas.saveGState()
 canvas.addPath(bodyPath); canvas.clip()
 // background: indigo → violet (the flower crown's colours), with a teal glow from the eyes' colour
 // (start = bottom edge): light violet behind the creature, deep indigo up top
-let grad = CGGradient(colorsSpace: cs, colors: [rgb(0xb299ff), rgb(0x5a44c4), rgb(0x150f3d)] as CFArray, locations: [0, 0.48, 1])!
+let grad = CGGradient(colorsSpace: cs, colors: [rgb(0xd39cf5), rgb(0x7246c2), rgb(0x150f3d)] as CFArray, locations: [0, 0.48, 1])!   // lower half leans pink
 canvas.drawLinearGradient(grad, start: CGPoint(x: 512, y: 100), end: CGPoint(x: 512, y: 924), options: [])
 let glow = CGGradient(colorsSpace: cs, colors: [rgb(0x37d6c8, 0.30), rgb(0x37d6c8, 0)] as CFArray, locations: [0, 1])!
 canvas.drawRadialGradient(glow, startCenter: CGPoint(x: 573, y: 512), startRadius: 0,
                           endCenter: CGPoint(x: 573, y: 512), endRadius: 420, options: [])
 // soft lavender light behind the creature's head so its dark outline reads against the background
-let halo = CGGradient(colorsSpace: cs, colors: [rgb(0xc8b8ff, 0.55), rgb(0xa48bff, 0.22), rgb(0xa48bff, 0)] as CFArray, locations: [0, 0.45, 1])!
+let halo = CGGradient(colorsSpace: cs, colors: [rgb(0xe4b8ff, 0.55), rgb(0xc08bf0, 0.22), rgb(0xc08bf0, 0)] as CFArray, locations: [0, 0.45, 1])!
 canvas.drawRadialGradient(halo, startCenter: CGPoint(x: 573, y: top(800, 0)), startRadius: 0,
                           endCenter: CGPoint(x: 573, y: top(800, 0)), endRadius: 420, options: [])
 
@@ -118,20 +118,13 @@ let frameMidX = (strip.maxX + 924) / 2
 
 // big play button behind the creature
 let pc = CGPoint(x: frameMidX, y: 512)   // centre of the picture area; the creature covers its lower part
-let pr: CGFloat = 228
-canvas.saveGState()
-canvas.setShadow(offset: CGSize(width: 0, height: -8), blur: 30, color: rgb(0x150f40, 0.45))
-canvas.setFillColor(rgb(0xffffff, 0.16)); canvas.fillEllipse(in: CGRect(x: pc.x - pr, y: pc.y - pr, width: pr * 2, height: pr * 2))
-canvas.restoreGState()
-canvas.setStrokeColor(rgb(0xffffff, 0.30)); canvas.setLineWidth(4)
-canvas.strokeEllipse(in: CGRect(x: pc.x - pr + 2, y: pc.y - pr + 2, width: pr * 2 - 4, height: pr * 2 - 4))
 // rounded triangle: fill + a thick round-joined stroke of the same colour softens the corners
 let tri = CGMutablePath()
 let th: CGFloat = 112   // half height
 tri.move(to: CGPoint(x: pc.x - 62, y: pc.y + th)); tri.addLine(to: CGPoint(x: pc.x - 62, y: pc.y - th))
 tri.addLine(to: CGPoint(x: pc.x + 118, y: pc.y)); tri.closeSubpath()
 canvas.saveGState()
-canvas.setShadow(offset: CGSize(width: 0, height: -6), blur: 18, color: rgb(0x1b1250, 0.40))
+canvas.setShadow(offset: CGSize(width: 0, height: -8), blur: 26, color: rgb(0x1b1250, 0.50))
 canvas.beginTransparencyLayer(auxiliaryInfo: nil)          // one shadow for fill + stroke together
 canvas.setFillColor(rgb(0xffffff)); canvas.addPath(tri); canvas.fillPath()
 canvas.setStrokeColor(rgb(0xffffff)); canvas.setLineWidth(30); canvas.setLineJoin(.round); canvas.addPath(tri); canvas.strokePath()
