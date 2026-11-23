@@ -130,25 +130,25 @@ canvas.restoreGState()
 canvas.saveGState()
 canvas.addPath(disc); canvas.clip()
 // frosted body: a touch of blur + brightening of whatever's behind, lighter toward the top
-let body2 = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.14), rgb(0xffffff, 0.05), rgb(0xffffff, 0.03)] as CFArray, locations: [0, 0.55, 1])!
+let body2 = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.10), rgb(0xffffff, 0.045), rgb(0xffffff, 0.03)] as CFArray, locations: [0, 0.55, 1])!
 canvas.drawLinearGradient(body2, start: CGPoint(x: pc.x, y: discRect.maxY), end: CGPoint(x: pc.x, y: discRect.minY), options: [])
 // curved specular highlight across the top
 let spec = CGPath(ellipseIn: CGRect(x: pc.x - pr * 0.78, y: pc.y + pr * 0.28, width: pr * 1.56, height: pr * 0.86), transform: nil)
 canvas.saveGState()
 canvas.addPath(spec); canvas.clip()
-let specG = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.26), rgb(0xffffff, 0.0)] as CFArray, locations: [0, 1])!
+let specG = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.14), rgb(0xffffff, 0.0)] as CFArray, locations: [0, 1])!
 canvas.drawLinearGradient(specG, start: CGPoint(x: pc.x, y: discRect.maxY), end: CGPoint(x: pc.x, y: pc.y + pr * 0.32), options: [])
 canvas.restoreGState()
 // refraction: light pooling along the bottom inside edge
-let refr = CGGradient(colorsSpace: cs, colors: [rgb(0xf3d9ff, 0.0), rgb(0xf3d9ff, 0.16)] as CFArray, locations: [0, 1])!
+let refr = CGGradient(colorsSpace: cs, colors: [rgb(0xf3d9ff, 0.0), rgb(0xf3d9ff, 0.09)] as CFArray, locations: [0, 1])!
 canvas.drawRadialGradient(refr, startCenter: CGPoint(x: pc.x, y: pc.y + pr * 0.12), startRadius: pr * 0.70,
                           endCenter: pc, endRadius: pr, options: [])
 canvas.restoreGState()
 // rim: bright where light hits (top-left), fading round to the bottom-right
 canvas.saveGState()
 canvas.addPath(CGPath(ellipseIn: discRect.insetBy(dx: 1.5, dy: 1.5), transform: nil))
-canvas.setLineWidth(3.5); canvas.replacePathWithStrokedPath(); canvas.clip()
-let rim = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.62), rgb(0xffffff, 0.14), rgb(0xffffff, 0.30)] as CFArray, locations: [0, 0.6, 1])!
+canvas.setLineWidth(3); canvas.replacePathWithStrokedPath(); canvas.clip()
+let rim = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.38), rgb(0xffffff, 0.12), rgb(0xffffff, 0.20)] as CFArray, locations: [0, 0.6, 1])!
 canvas.drawLinearGradient(rim, start: CGPoint(x: discRect.minX + pr * 0.3, y: discRect.maxY - pr * 0.3),
                           end: CGPoint(x: discRect.maxX - pr * 0.3, y: discRect.minY + pr * 0.3), options: [])
 canvas.restoreGState()
