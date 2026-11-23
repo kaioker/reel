@@ -118,14 +118,40 @@ let frameMidX = (strip.maxX + 924) / 2
 
 // big play button behind the creature
 let pc = CGPoint(x: frameMidX, y: 512)   // centre of the picture area; the creature covers its lower part
-// soft disc behind it — present but quiet
+// Liquid Glass disc behind it: frosted body, curved top highlight, light-catching rim, refraction glow
 let pr: CGFloat = 228
+let discRect = CGRect(x: pc.x - pr, y: pc.y - pr, width: pr * 2, height: pr * 2)
+let disc = CGPath(ellipseIn: discRect, transform: nil)
+// soft shadow under the glass
 canvas.saveGState()
-canvas.setShadow(offset: CGSize(width: 0, height: -6), blur: 26, color: rgb(0x150f40, 0.25))
-canvas.setFillColor(rgb(0xffffff, 0.075)); canvas.fillEllipse(in: CGRect(x: pc.x - pr, y: pc.y - pr, width: pr * 2, height: pr * 2))
+canvas.setShadow(offset: CGSize(width: 0, height: -10), blur: 30, color: rgb(0x120a38, 0.30))
+canvas.addPath(disc); canvas.setFillColor(rgb(0xffffff, 0.04)); canvas.fillPath()
 canvas.restoreGState()
-canvas.setStrokeColor(rgb(0xffffff, 0.13)); canvas.setLineWidth(3)
-canvas.strokeEllipse(in: CGRect(x: pc.x - pr + 1.5, y: pc.y - pr + 1.5, width: pr * 2 - 3, height: pr * 2 - 3))
+canvas.saveGState()
+canvas.addPath(disc); canvas.clip()
+// frosted body: a touch of blur + brightening of whatever's behind, lighter toward the top
+let body2 = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.14), rgb(0xffffff, 0.05), rgb(0xffffff, 0.03)] as CFArray, locations: [0, 0.55, 1])!
+canvas.drawLinearGradient(body2, start: CGPoint(x: pc.x, y: discRect.maxY), end: CGPoint(x: pc.x, y: discRect.minY), options: [])
+// curved specular highlight across the top
+let spec = CGPath(ellipseIn: CGRect(x: pc.x - pr * 0.78, y: pc.y + pr * 0.28, width: pr * 1.56, height: pr * 0.86), transform: nil)
+canvas.saveGState()
+canvas.addPath(spec); canvas.clip()
+let specG = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.26), rgb(0xffffff, 0.0)] as CFArray, locations: [0, 1])!
+canvas.drawLinearGradient(specG, start: CGPoint(x: pc.x, y: discRect.maxY), end: CGPoint(x: pc.x, y: pc.y + pr * 0.32), options: [])
+canvas.restoreGState()
+// refraction: light pooling along the bottom inside edge
+let refr = CGGradient(colorsSpace: cs, colors: [rgb(0xf3d9ff, 0.0), rgb(0xf3d9ff, 0.16)] as CFArray, locations: [0, 1])!
+canvas.drawRadialGradient(refr, startCenter: CGPoint(x: pc.x, y: pc.y + pr * 0.12), startRadius: pr * 0.70,
+                          endCenter: pc, endRadius: pr, options: [])
+canvas.restoreGState()
+// rim: bright where light hits (top-left), fading round to the bottom-right
+canvas.saveGState()
+canvas.addPath(CGPath(ellipseIn: discRect.insetBy(dx: 1.5, dy: 1.5), transform: nil))
+canvas.setLineWidth(3.5); canvas.replacePathWithStrokedPath(); canvas.clip()
+let rim = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.62), rgb(0xffffff, 0.14), rgb(0xffffff, 0.30)] as CFArray, locations: [0, 0.6, 1])!
+canvas.drawLinearGradient(rim, start: CGPoint(x: discRect.minX + pr * 0.3, y: discRect.maxY - pr * 0.3),
+                          end: CGPoint(x: discRect.maxX - pr * 0.3, y: discRect.minY + pr * 0.3), options: [])
+canvas.restoreGState()
 // rounded triangle: fill + a thick round-joined stroke of the same colour softens the corners
 let tri = CGMutablePath()
 let th: CGFloat = 112   // half height
