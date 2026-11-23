@@ -316,6 +316,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     var debugCurrentTime: Double { backend?.currentTime ?? -1 }
     var debugIsPlaying: Bool { backend?.isPlaying ?? false }
     func debugHoldFlash() { flash.debugHold() }
+    func debugSeek(_ t: Double) { backend?.seek(to: t) }
     /// What the audio player is actually set to (AVPlayer gain), for REEL_VOLUME_TEST.
     var debugPlayerGain: Float { (backend as? AVBackend)?.player.volume ?? -1 }
     var debugVolumeLevel: Float { volume }
@@ -410,6 +411,34 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     }
 
     /// On launch: start the first item of the playlist you used last (unless something already started).
+    // MARK: Resume after an update restart
+
+    private var pendingSeek: Double?
+
+    /// Saved right before an update restart: playlist, track, position, playing or not.
+    func saveResumePoint() {
+        guard let c = current, c.playlist != transientID, let b = backend else { return }
+        UserDefaults.standard.set([
+            "playlist": c.playlist.uuidString, "track": c.track.uuidString,
+            "time": b.currentTime, "playing": b.isPlaying, "at": Date().timeIntervalSince1970,
+        ] as [String: Any], forKey: "resumePoint")
+    }
+
+    /// On launch: pick up where an update restart left off (used once, only if recent). True if it did.
+    func resumeIfSaved() -> Bool {
+        guard let d = UserDefaults.standard.dictionary(forKey: "resumePoint") else { return false }
+        UserDefaults.standard.removeObject(forKey: "resumePoint")
+        guard let at = d["at"] as? Double, Date().timeIntervalSince1970 - at < 600,
+              let pid = (d["playlist"] as? String).flatMap(UUID.init(uuidString:)),
+              let tid = (d["track"] as? String).flatMap(UUID.init(uuidString:)),
+              Library.shared.playlist(pid)?.tracks.contains(where: { $0.id == tid }) == true else { return false }
+        panel.show(playlist: pid)
+        let t = d["time"] as? Double ?? 0
+        pendingSeek = t > 1 ? t : nil
+        play(playlist: pid, track: tid, startPaused: !(d["playing"] as? Bool ?? false))
+        return true
+    }
+
     /// On launch: load the first item of the playlist you used last, paused.
     func autoplayLastPlaylist() {
         guard isIdle else { return }
@@ -953,6 +982,10 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     private var lastLog = 0.0
     func backendTick() {
         guard let b = backend else { return }
+        if let s = pendingSeek, b.duration > 0 {
+            pendingSeek = nil
+            b.seek(to: min(s, max(0, b.duration - 0.5)))
+        }
         if audioOnly, b.duration > 0 { waveform.progress = b.currentTime / b.duration }
         if debugLog, Date().timeIntervalSince1970 - lastLog > 1.5 {
             lastLog = Date().timeIntervalSince1970

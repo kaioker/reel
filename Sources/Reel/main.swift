@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ n: Notification) {
         buildMenu()
+        Updater.willRelaunch = { [weak self] in self?.player.saveResumePoint() }
         player = PlayerController()
         player.showWindow()
         if !pendingOpen.isEmpty { player.open(files: pendingOpen); pendingOpen = [] }
@@ -17,9 +18,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor in await Updater.check(interactive: false, window: self.player.window) }
             }
         }
-        if env["REEL_PLAY"] == nil && !env.keys.contains(where: { $0.hasSuffix("_TEST") }) || env["REEL_AUTOPLAY_TEST"] != nil {
+        if env["REEL_PLAY"] == nil && !env.keys.contains(where: { $0.hasSuffix("_TEST") }) || env["REEL_AUTOPLAY_TEST"] != nil || env["REEL_RESUME_TEST"] == "check" {
             // Give a file opened from Finder/Dock a moment to arrive first; it wins.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.player.autoplayLastPlaylist() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                if !self.player.resumeIfSaved() { self.player.autoplayLastPlaylist() }
+            }
         }
         if let u = ProcessInfo.processInfo.environment["REEL_PLAY"] {
             if u == "first" { player.nextTrack() } else { player.panel.add(text: u, at: nil, playFirst: true) }
@@ -347,6 +350,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 fflush(stdout); NSApp.terminate(nil) } }))
             var t = 0.0
             for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
+        }
+        if let mode = ProcessInfo.processInfo.environment["REEL_RESUME_TEST"] {
+            if mode == "save" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    self.player.debugSeek(23.0)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        print(String(format: "before restart: t=%.1f playing=%@", self.player.debugCurrentTime, self.player.debugIsPlaying ? "yes" : "no"))
+                        Updater.willRelaunch?(); fflush(stdout); NSApp.terminate(nil)
+                    }
+                }
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                    let name = self.player.nowPlayingTrackID.flatMap { id in Library.shared.playlists.flatMap(\.tracks).first { $0.id == id }?.displayName } ?? "-"
+                    print(String(format: "after restart: track=%@ t=%.1f playing=%@  (saved point cleared: %@)", name, self.player.debugCurrentTime, self.player.debugIsPlaying ? "yes" : "no",
+                                 UserDefaults.standard.dictionary(forKey: "resumePoint") == nil ? "yes" : "no"))
+                    fflush(stdout); NSApp.terminate(nil)
+                }
+            }
         }
         if ProcessInfo.processInfo.environment["REEL_AUTOPLAY_TEST"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {

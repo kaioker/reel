@@ -4,6 +4,8 @@ import AppKit
 /// and can install it in place: download, swap the app bundle, relaunch.
 enum Updater {
     static let repo = "kaioker/reel"
+    /// Called right before quitting to install an update (saves where playback is).
+    static var willRelaunch: (() -> Void)?
 
     struct Release { var tag: String; var version: [Int]; var zipURL: URL? }
 
@@ -116,6 +118,7 @@ enum Updater {
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
         p.arguments = ["-c", script]
         try? p.run()
+        willRelaunch?()
         Library.shared.saveNow()
         NSApp.terminate(nil)
     }

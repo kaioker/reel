@@ -106,6 +106,8 @@ final class AVBackend: NSObject, PlayerBackend {
                     guard let self else { return }
                     if item.status == .failed {
                         self.delegate?.backendFailed(item.error?.localizedDescription ?? "Can't play this file")
+                    } else if item.status == .readyToPlay {
+                        self.delegate?.backendTick()   // lets a paused start be positioned (no ticks while paused)
                     }
                 }
             },
