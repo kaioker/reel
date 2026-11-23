@@ -92,8 +92,8 @@ canvas.addPath(bodyPath); canvas.clip()
 let grad = CGGradient(colorsSpace: cs, colors: [rgb(0x9277ea), rgb(0x5140b4), rgb(0x221c58)] as CFArray, locations: [0, 0.5, 1])!
 canvas.drawLinearGradient(grad, start: CGPoint(x: 512, y: 100), end: CGPoint(x: 512, y: 924), options: [])
 let glow = CGGradient(colorsSpace: cs, colors: [rgb(0x37d6c8, 0.30), rgb(0x37d6c8, 0)] as CFArray, locations: [0, 1])!
-canvas.drawRadialGradient(glow, startCenter: CGPoint(x: 580, y: top(352, 0)), startRadius: 0,
-                          endCenter: CGPoint(x: 580, y: top(352, 0)), endRadius: 420, options: [])
+canvas.drawRadialGradient(glow, startCenter: CGPoint(x: 512, y: 512), startRadius: 0,
+                          endCenter: CGPoint(x: 512, y: 512), endRadius: 420, options: [])
 // soft lavender light behind the creature's head so its dark outline reads against the background
 let halo = CGGradient(colorsSpace: cs, colors: [rgb(0xc8b8ff, 0.55), rgb(0xa48bff, 0.22), rgb(0xa48bff, 0)] as CFArray, locations: [0, 0.45, 1])!
 canvas.drawRadialGradient(halo, startCenter: CGPoint(x: 580, y: top(800, 0)), startRadius: 0,
@@ -112,7 +112,7 @@ while hy + hole <= 924 {
 }
 
 // big play button behind the creature
-let pc = CGPoint(x: 580, y: top(352, 0))
+let pc = CGPoint(x: 512, y: 512)   // dead centre of the icon; the creature covers its lower part
 let pr: CGFloat = 228
 canvas.saveGState()
 canvas.setShadow(offset: CGSize(width: 0, height: -8), blur: 30, color: rgb(0x150f40, 0.45))
