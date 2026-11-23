@@ -40,6 +40,7 @@ final class HelpWindow: NSObject {
             ("Double-click a title", "Rename a track or the playlist (your name replaces the title)"),
             ("Drag rows", "Reorder · Delete key removes"),
             ("Right-click a track", "Icons: play, play next, rename, skip (strike through), Finder / copy link, copy to playlist, remove"),
+            ("End of a playlist", "Goes round to the first track again"),
             ("Struck-through tracks", "Stay in the playlist but next / previous / auto-advance pass over them; click to play anyway"),
             ("Grayed out + Fix", "The file isn't on this Mac — Fix to point at it (others in that folder relink too)"),
             ("", "The list follows the playing track unless you scroll somewhere else"),

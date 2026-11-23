@@ -921,7 +921,10 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     func nextTrack(auto: Bool = false) {
         if let (list, i) = neighbors() {
             if let n = list[(i + 1)...].first(where: { $0.isPlayableInSequence }) { play(playlist: current!.playlist, track: n.id) }
-            else if auto { backend?.pause(); updateHUDState() }
+            else if current!.playlist != transientID, let first = list.first(where: { $0.isPlayableInSequence }) {
+                play(playlist: current!.playlist, track: first.id)   // end of the playlist → round to the front
+            }
+            else if auto { backend?.pause(); updateHUDState() }      // opened files play once, then stop
         } else if let first = panel.tracks.first(where: { $0.isPlayableInSequence }) {
             play(playlist: panel.shownID, track: first.id)
         } else if let c = current, let p = list(c.playlist), let first = p.tracks.first(where: { $0.isPlayableInSequence }) {

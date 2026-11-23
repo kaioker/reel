@@ -389,6 +389,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             var t = 0.0
             for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
         }
+        if ProcessInfo.processInfo.environment["REEL_WRAP_TEST"] != nil {
+            let pl = self.player!, panel = pl.panel
+            func playing() -> String { pl.nowPlayingTrackID.flatMap { id in panel.tracks.first { $0.id == id }?.displayName } ?? "-" }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                print("playlist:", panel.tracks.map(\.displayName), " playing:", playing())
+                pl.panelPlay(playlist: panel.shownID, track: panel.tracks.last!.id)
+                print("on the last track (\(playing())), loop off, waiting for it to end…"); fflush(stdout)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
+                    print("after it ended: playing \(playing()) (\(pl.debugIsPlaying ? "playing" : "stopped"))")
+                    pl.panelPlay(playlist: panel.shownID, track: panel.tracks.last!.id); pl.nextTrack()
+                    print("↓ on the last track: \(playing())"); fflush(stdout); NSApp.terminate(nil)
+                }
+            }
+        }
         if ProcessInfo.processInfo.environment["REEL_AUTOPLAY_TEST"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                 print(String(format: "3s after launch: playing=%@ t=%.2f", self.player.debugIsPlaying ? "yes" : "no", self.player.debugCurrentTime)); fflush(stdout)
