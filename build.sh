@@ -18,6 +18,18 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Reel "$APP/Contents/MacOS/Reel"
 [ -f AppIcon.icns ] && cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/" 2>/dev/null || true
+
+# Bundled ffmpeg (transparent WebM + converting videos macOS can't decode) — so nothing needs installing.
+# Built once from FFmpeg's official source and cached in .deps/ (see scripts/build-ffmpeg.sh).
+if [[ ! -x .deps/ffmpeg-bin/ffmpeg ]]; then
+  ./scripts/build-ffmpeg.sh || echo "⚠︎ Couldn't build the bundled ffmpeg — Reel will use Homebrew's if present."
+fi
+if [[ -x .deps/ffmpeg-bin/ffmpeg ]]; then
+  mkdir -p "$APP/Contents/Helpers"
+  cp .deps/ffmpeg-bin/ffmpeg "$APP/Contents/Helpers/ffmpeg"
+  codesign --force --sign - "$APP/Contents/Helpers/ffmpeg" >/dev/null 2>&1 || true
+fi
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

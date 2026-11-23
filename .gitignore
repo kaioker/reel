@@ -4,3 +4,5 @@
 Reel.app/
 *.zip
 .DS_Store
+.deps/
+.deps-build.log

@@ -193,8 +193,12 @@ enum MediaResolver {
 
     // MARK: Transparent WebM
 
+    /// Reel's own copy (inside the app, so nothing needs installing) first, then Homebrew's.
     static func findFFmpeg() -> String? {
-        ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"].first { FileManager.default.isExecutableFile(atPath: $0) }
+        let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/ffmpeg").path
+        let override = ProcessInfo.processInfo.environment["REEL_FFMPEG"]   // tests
+        return [override, bundled, "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"].compactMap { $0 }
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
     /// WebM files with an alpha channel carry Matroska "AlphaMode = 1" (EBML 53 C0 81 01) in the header.
@@ -236,22 +240,10 @@ enum MediaResolver {
         let input = url.isFileURL ? url.path : url.absoluteString
         let ok: Bool = await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
-                // Length, for the progress percentage.
-                var duration = 0.0
-                let probe = ffmpeg.replacingOccurrences(of: "/ffmpeg", with: "/ffprobe")
-                if FileManager.default.isExecutableFile(atPath: probe) {
-                    let q = Process(); let o = Pipe()
-                    q.executableURL = URL(fileURLWithPath: probe)
-                    q.arguments = ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", input]
-                    q.standardOutput = o; q.standardError = FileHandle.nullDevice
-                    if (try? q.run()) != nil {
-                        let d = o.fileHandleForReading.readDataToEndOfFile(); q.waitUntilExit()
-                        duration = Double(String(data: d, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? 0
-                    }
-                }
                 let p = Process()
                 p.executableURL = URL(fileURLWithPath: ffmpeg)
-                var args = ["-loglevel", "error", "-nostats", "-progress", "pipe:1", "-y", "-threads", "0"]
+                // "info" so the input's Duration line is printed (read below for the % — no ffprobe needed)
+                var args = ["-hide_banner", "-loglevel", "info", "-nostats", "-progress", "pipe:1", "-y", "-threads", "0"]
                 if !url.isFileURL { args += ["-user_agent", browserUA] }
                 // libvpx (not ffmpeg's native vp9 decoder) is what actually decodes the alpha plane.
                 // The software VP9-with-alpha decode is the slow part; the hardware encoder runs in
@@ -262,20 +254,31 @@ enum MediaResolver {
                     ? ["-c:v", "hevc_videotoolbox", "-alpha_quality", "0.9", "-tag:v", "hvc1", "-q:v", "70"]
                     : ["-c:v", "hevc_videotoolbox", "-tag:v", "hvc1", "-q:v", "65"]
                 p.arguments = args + video + ["-realtime", "1", "-prio_speed", "1", "-c:a", "aac", tmp.path]
-                let out = Pipe()
+                let out = Pipe(), err = Pipe()
                 p.standardOutput = out
-                p.standardError = FileHandle.nullDevice
-                if duration > 0, let progress {
+                p.standardError = err
+                let lock = NSLock()
+                var duration = 0.0
+                err.fileHandleForReading.readabilityHandler = { h in
+                    guard let text = String(data: h.availableData, encoding: .utf8),
+                          let m = text.firstMatch(of: #/Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/#) else { return }
+                    let d = (Double(m.1) ?? 0) * 3600 + (Double(m.2) ?? 0) * 60 + (Double(m.3) ?? 0)
+                    lock.lock(); if duration == 0 { duration = d }; lock.unlock()
+                }
+                if let progress {
                     out.fileHandleForReading.readabilityHandler = { h in
                         guard let text = String(data: h.availableData, encoding: .utf8) else { return }
+                        lock.lock(); let d = duration; lock.unlock()
+                        guard d > 0 else { return }
                         for line in text.split(separator: "\n") where line.hasPrefix("out_time_us=") {
-                            if let us = Double(line.dropFirst(12)) { progress(min(1, us / 1_000_000 / duration)) }
+                            if let us = Double(line.dropFirst(12)) { progress(min(1, us / 1_000_000 / d)) }
                         }
                     }
                 }
                 do { try p.run() } catch { cont.resume(returning: false); return }
                 p.waitUntilExit()
                 out.fileHandleForReading.readabilityHandler = nil
+                err.fileHandleForReading.readabilityHandler = nil
                 cont.resume(returning: p.terminationStatus == 0)
             }
         }

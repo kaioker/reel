@@ -241,7 +241,7 @@ final class AboutWindow: NSObject {
         lib.frame.origin = NSPoint(x: help.frame.maxX + 10, y: y)
         root.addSubview(help); root.addSubview(lib)
 
-        let foot = label("Built with Swift · AppKit · AVFoundation · WebKit\n© 2026", size: 11, alpha: 0.4)
+        let foot = label("Built with Swift · AppKit · AVFoundation · WebKit\nIncludes FFmpeg (LGPL) and libvpx (BSD) · © 2026", size: 11, alpha: 0.4)
         foot.frame = NSRect(x: 30, y: 18, width: W - 60, height: 30)
         root.addSubview(foot)
 
