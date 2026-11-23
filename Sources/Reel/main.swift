@@ -1,4 +1,5 @@
 import AppKit
+import VideoToolbox
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var player: PlayerController!
@@ -259,6 +260,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        if let dir = ProcessInfo.processInfo.environment["REEL_AUDIO_TEST"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                let files = (try? FileManager.default.contentsOfDirectory(atPath: dir))!.sorted().map { URL(fileURLWithPath: dir + "/" + $0) }
+                for f in files { print("isMedia(\(f.lastPathComponent)) =", MediaResolver.isMedia(f)) }
+                let pb = NSPasteboard(name: NSPasteboard.Name("reel-audio-\(getpid())"))
+                pb.clearContents(); pb.writeObjects(files as [NSURL])
+                let ok = self.player.panel.acceptExternal(pb, at: nil, playFirst: true)
+                print("drop accepted:", ok, " playlist now:", self.player.panel.tracks.map(\.displayName))
+                var i = 0
+                func next() {
+                    guard i < self.player.panel.tracks.count else { pb.releaseGlobally(); NSApp.terminate(nil); return }
+                    let t = self.player.panel.tracks[i]; i += 1
+                    self.player.panelPlay(playlist: self.player.panel.shownID, track: t.id)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        print(String(format: "  %@ → playing=%@ t=%.1f", t.displayName, self.player.debugIsPlaying ? "yes" : "no", self.player.debugCurrentTime)); fflush(stdout)
+                        next()
+                    }
+                }
+                next()
+            }
+        }
         if ProcessInfo.processInfo.environment["REEL_ALIGN_TEST"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 let w = self.player.window
@@ -278,6 +300,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 fflush(stdout)
                 if mode == "install" { await Updater.install(rel, window: nil) } else { NSApp.terminate(nil) }
             }
+        }
+        if let out = ProcessInfo.processInfo.environment["REEL_FLASH2_TEST"] {
+            // flash several times (as repeated clicks would), then capture one held frame
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                for _ in 0..<3 { self.player.togglePlay() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    self.player.togglePlay()
+                    self.player.debugHoldFlash()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+                        p.arguments = ["-x", "-o", "-l\(self.player.window.windowNumber)", out]; try? p.run(); p.waitUntilExit()
+                        NSApp.terminate(nil)
+                    }
+                }
+            }
+        }
+        if let clip = ProcessInfo.processInfo.environment["REEL_BATCH_TEST"] {
+            NSApp.activate(ignoringOtherApps: true); self.player.window.makeKeyAndOrderFront(nil)
+            let pl = self.player!, panel = pl.panel
+            func playing() -> String { pl.nowPlayingTrackID.flatMap { id in Library.shared.playlists.flatMap(\.tracks).first { $0.id == id }?.displayName } ?? (pl.nowPlayingTrackID == nil ? "-" : "(opened file)") }
+            func key(_ code: UInt16) {
+                let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.shift], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: pl.window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)!
+                NSApp.sendEvent(e)
+            }
+            var steps: [(Double, () -> Void)] = []
+            steps.append((1.0, {
+                let before = Library.shared.playlists.flatMap(\.tracks).count
+                pl.open(files: [URL(fileURLWithPath: clip)])
+                print("1. opened from Finder: playing \(playing()), library tracks \(before) → \(Library.shared.playlists.flatMap(\.tracks).count), lastPlaylist unchanged: \(Prefs.lastPlaylist == ProcessInfo.processInfo.environment["REEL_EXPECT_LAST"])")
+            }))
+            steps.append((5.0, { print("   after the 3 s clip ended: still playing? \(pl.debugIsPlaying)  (should be false — played once, no loop)") }))
+            steps.append((0.5, {
+                print("2. playlist open before paste: \(pl.panelOpen)")
+                let pb = NSPasteboard(name: NSPasteboard.Name("reel-batch-\(getpid())")); pb.clearContents(); pb.writeObjects([URL(fileURLWithPath: clip) as NSURL])
+                _ = panel.acceptExternal(pb, at: nil, playFirst: false)
+            }))
+            steps.append((0.8, { print("   after paste: playlist open \(pl.panelOpen), selected row \(panel.table.selectedRow) of \(panel.tracks.count) in “\(Library.shared.playlist(panel.shownID)!.name)”") }))
+            steps.append((0.3, { key(125) }))
+            steps.append((0.5, { print("3. ⇧↓ → showing “\(Library.shared.playlist(panel.shownID)!.name)”, playing \(playing())"); key(124) }))
+            steps.append((0.5, { print("   ⇧→ → playing \(playing())"); key(126) }))
+            steps.append((0.5, { print("   ⇧↑ → showing “\(Library.shared.playlist(panel.shownID)!.name)”") }))
+            steps.append((0.1, { Task { @MainActor in
+                print("4. YouTube playlist title:", await MediaResolver.youtubePlaylistTitle("PL0BAFA2DA294B0900") ?? "nil")
+                print("   playlist links found in a paste:", MediaResolver.youtubePlaylistLinks(in: "see https://www.youtube.com/watch?v=dhzPnX07jAs&list=PL0BAFA2DA294B0900 and https://youtu.be/abc").map { "\($0.video ?? "-")/\($0.list)" })
+                fflush(stdout); NSApp.terminate(nil) } }))
+            var t = 0.0
+            for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
         }
         if ProcessInfo.processInfo.environment["REEL_AUTOPLAY_TEST"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
@@ -591,6 +660,11 @@ if let u = ProcessInfo.processInfo.environment["REEL_RESOLVE"] {
     sem.wait()
     exit(0)
 }
+
+// Let AVFoundation decode VP9 (and AV1 where the Mac supports it) — e.g. VP9 inside .mp4 files,
+// which otherwise play as sound over a black picture. Safari does the same.
+VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_VP9)
+if #available(macOS 14.0, *) { VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_AV1) }
 
 let app = NSApplication.shared
 let delegate = AppDelegate()

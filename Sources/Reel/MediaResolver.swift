@@ -214,7 +214,7 @@ enum MediaResolver {
     }
 
     /// Converts a transparent WebM to HEVC-with-alpha (which macOS plays with real transparency). Cached.
-    static func alphaMovie(for url: URL) async -> URL? {
+    static func alphaMovie(for url: URL, progress: (@Sendable (Double) -> Void)? = nil) async -> URL? {
         guard let ffmpeg = findFFmpeg() else { return nil }
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Reel/alpha", isDirectory: true)
@@ -227,21 +227,48 @@ enum MediaResolver {
         let out = dir.appendingPathComponent(hash + ".mov")
         if FileManager.default.fileExists(atPath: out.path) { return out }
         let tmp = dir.appendingPathComponent(hash + ".part.mov")
+        let input = url.isFileURL ? url.path : url.absoluteString
         let ok: Bool = await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
+                // Length, for the progress percentage.
+                var duration = 0.0
+                let probe = ffmpeg.replacingOccurrences(of: "/ffmpeg", with: "/ffprobe")
+                if FileManager.default.isExecutableFile(atPath: probe) {
+                    let q = Process(); let o = Pipe()
+                    q.executableURL = URL(fileURLWithPath: probe)
+                    q.arguments = ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", input]
+                    q.standardOutput = o; q.standardError = FileHandle.nullDevice
+                    if (try? q.run()) != nil {
+                        let d = o.fileHandleForReading.readDataToEndOfFile(); q.waitUntilExit()
+                        duration = Double(String(data: d, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? 0
+                    }
+                }
                 let p = Process()
                 p.executableURL = URL(fileURLWithPath: ffmpeg)
-                var args = ["-loglevel", "error", "-y"]
+                var args = ["-loglevel", "error", "-nostats", "-progress", "pipe:1", "-y", "-threads", "0"]
                 if !url.isFileURL { args += ["-user_agent", browserUA] }
-                // libvpx (not ffmpeg's native vp9 decoder) is what actually decodes the alpha plane
-                args += ["-c:v", "libvpx-vp9", "-i", url.isFileURL ? url.path : url.absoluteString]
+                // libvpx (not ffmpeg's native vp9 decoder) is what actually decodes the alpha plane.
+                // The software VP9-with-alpha decode is the slow part; the hardware encoder runs in
+                // speed-priority mode (~1.8× faster than default).
+                args += ["-c:v", "libvpx-vp9", "-i", input]
                 p.arguments = args + [
                                "-c:v", "hevc_videotoolbox", "-alpha_quality", "0.9", "-tag:v", "hvc1", "-q:v", "70",
+                               "-realtime", "1", "-prio_speed", "1",
                                "-c:a", "aac", tmp.path]
-                p.standardOutput = FileHandle.nullDevice
+                let out = Pipe()
+                p.standardOutput = out
                 p.standardError = FileHandle.nullDevice
+                if duration > 0, let progress {
+                    out.fileHandleForReading.readabilityHandler = { h in
+                        guard let text = String(data: h.availableData, encoding: .utf8) else { return }
+                        for line in text.split(separator: "\n") where line.hasPrefix("out_time_us=") {
+                            if let us = Double(line.dropFirst(12)) { progress(min(1, us / 1_000_000 / duration)) }
+                        }
+                    }
+                }
                 do { try p.run() } catch { cont.resume(returning: false); return }
                 p.waitUntilExit()
+                out.fileHandleForReading.readabilityHandler = nil
                 cont.resume(returning: p.terminationStatus == 0)
             }
         }
@@ -251,6 +278,29 @@ enum MediaResolver {
     }
 
     // MARK: YouTube
+
+    /// YouTube links in some text that point at a playlist (watch?v=…&list=… or playlist?list=…).
+    static func youtubePlaylistLinks(in text: String) -> [(link: String, video: String?, list: String)] {
+        text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).compactMap { tok in
+            let str = String(tok)
+            guard let u = normalizedURL(str), let yt = parseYouTube(u), let list = yt.list else { return nil }
+            return (str, yt.video, list)
+        }
+    }
+
+    /// The playlist's title, for naming a new Reel playlist after it.
+    static func youtubePlaylistTitle(_ list: String) async -> String? {
+        guard let data = await get(URL(string: "https://www.youtube.com/playlist?list=\(list)&hl=en")!),
+              let html = String(data: data, encoding: .utf8) else { return nil }
+        if let m = html.firstMatch(of: #/<meta property="og:title" content="([^"]+)"/#) {
+            let t = String(m.1).replacingOccurrences(of: "&amp;", with: "&").replacingOccurrences(of: "&#39;", with: "'").replacingOccurrences(of: "&quot;", with: "\"")
+            if !t.isEmpty { return t }
+        }
+        if let m = html.firstMatch(of: #/<title>(.*?)( - YouTube)?</title>/#) {
+            let t = String(m.1); if !t.isEmpty && t != "YouTube" { return t }
+        }
+        return list.hasPrefix("RD") ? "YouTube Mix" : nil
+    }
 
     struct YouTubeRef { var video: String?; var list: String? }
 

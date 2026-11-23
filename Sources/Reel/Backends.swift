@@ -10,6 +10,7 @@ protocol BackendDelegate: AnyObject {
     func backendVideoSize(_ size: CGSize)
     func backendTransparent(_ transparent: Bool)
     func backendAudioOnly()
+    func backendNeedsWebFallback()
 }
 
 protocol PlayerBackend: AnyObject {
@@ -123,6 +124,10 @@ final class AVBackend: NSObject, PlayerBackend {
             if let tracks, tracks.isEmpty {
                 self?.hasVideo = false
                 self?.delegate?.backendAudioOnly()
+                return
+            }
+            if let v = tracks?.first, let decodable = try? await v.load(.isDecodable), !decodable {
+                self?.delegate?.backendNeedsWebFallback()
                 return
             }
             var alpha = false

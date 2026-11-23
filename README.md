@@ -45,6 +45,7 @@ Requires macOS 13+ and the Swift toolchain (Xcode or the Command Line Tools).
 | Right-drag ← → / ↑ ↓ | Seek / volume (two-finger swipe or mouse wheel too) |
 | Right-click | Icon menu |
 | Space · ← → · ↑ ↓ | Play/pause · skip 10 s · previous/next track |
+| ⇧← ⇧→ · ⇧↑ ⇧↓ | Previous/next track · previous/next playlist |
 | L · M · F | Loop track · mute · full screen |
 | ⌘P or the blue circle | Show / hide the playlist |
 | ⌘V | Add every link on the clipboard |

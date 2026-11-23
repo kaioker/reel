@@ -252,7 +252,9 @@ final class RootView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
+        // Not quite clear: macOS sends clicks and drags *through* fully transparent pixels to the
+        // window behind, which made drops miss Reel whenever the glass backdrop was showing.
+        layer?.backgroundColor = NSColor(white: 0, alpha: 0.012).cgColor
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -313,6 +315,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     var nowPlayingTrackID: UUID? { current?.track }
     var debugCurrentTime: Double { backend?.currentTime ?? -1 }
     var debugIsPlaying: Bool { backend?.isPlaying ?? false }
+    func debugHoldFlash() { flash.debugHold() }
     /// What the audio player is actually set to (AVPlayer gain), for REEL_VOLUME_TEST.
     var debugPlayerGain: Float { (backend as? AVBackend)?.player.volume ?? -1 }
     var debugVolumeLevel: Float { volume }
@@ -370,6 +373,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         interaction.onDragEnter = { [weak self] pb in
             guard let self, let s = PlaylistPanel.dropSummary(pb) else { return false }
             self.dropHighlight.show(title: s.isPlaylist ? "Drop to import playlist" : "Drop to play", detail: s.detail)
+            // Open the playlist so you can carry the drag over and drop it at a particular spot.
+            if !self.panelOpen { self.setPanel(open: true) }
             return true
         }
         interaction.onDragExit = { [weak self] in self?.dropHighlight.hide() }
@@ -668,6 +673,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     private func setChrome(_ visible: Bool) {
         guard visible != chromeVisible else { return }
         chromeVisible = visible
+        if videoIsTransparent { refreshBackdrop() }
         if debugLog { print("chrome", visible ? "shown" : "hidden"); fflush(stdout) }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = visible ? 0.12 : 0.35
@@ -701,12 +707,17 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
     private var currentTrack: Track? {
         guard let c = current else { return nil }
-        return Library.shared.playlist(c.playlist)?.tracks.first { $0.id == c.track }
+        return list(c.playlist)?.tracks.first { $0.id == c.track }
     }
 
     private var loadToken = 0
 
     private var nextAutoplay = true
+
+    /// Files opened from Finder / the Dock play from here: not saved, not shown, each plays once.
+    private let transientID = UUID()
+    private var transient = Playlist(name: "Opened files")
+    private func list(_ id: UUID) -> Playlist? { id == transientID ? transient : Library.shared.playlist(id) }
 
     private func use(_ next: PlayerBackend) {
         next.autoplay = nextAutoplay
@@ -722,10 +733,10 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
     func play(playlist pid: UUID, track tid: UUID, startPaused: Bool = false) {
         nextAutoplay = !startPaused
-        guard let track = Library.shared.playlist(pid)?.tracks.first(where: { $0.id == tid }) else { return }
+        guard let track = list(pid)?.tracks.first(where: { $0.id == tid }) else { return }
         failTimer?.cancel()
         current = (pid, tid)
-        Prefs.lastPlaylist = pid.uuidString   // remembered for autoplay on next launch
+        if pid != transientID { Prefs.lastPlaylist = pid.uuidString }   // remembered for autoplay on next launch
         emptyHint.isHidden = true
         loadToken += 1
         let token = loadToken
@@ -761,7 +772,12 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
                     // WebKit drops WebM transparency, so convert once to HEVC-with-alpha and play that.
                     self.use(self.avBackend)
                     self.showMessage("Preparing transparent video…")
-                    let movie = await MediaResolver.alphaMovie(for: url)
+                    let movie = await MediaResolver.alphaMovie(for: url) { [weak self] f in
+                        DispatchQueue.main.async {
+                            guard let self, token == self.loadToken else { return }
+                            self.showMessage("Preparing transparent video… \(Int(f * 100))%")
+                        }
+                    }
                     guard token == self.loadToken else { return }
                     self.showMessage("")
                     if let movie { self.avBackend.loadURL(movie); return }
@@ -796,7 +812,15 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
     private func refreshBackdrop() {
         let g = wantsGlass
+        // Nothing loaded / audio: always glass. Transparent video: glass only while the playlist or the
+        // window buttons are showing — otherwise fully see-through.
+        let showGlass = current == nil || audioOnly || (videoIsTransparent && (panelOpen || chromeVisible))
+        if debugLog { print("backdrop: glass=\(showGlass) transparentVideo=\(videoIsTransparent) chrome=\(chromeVisible) playlist=\(panelOpen)"); fflush(stdout) }
         videoGlass.isHidden = !g
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.3
+            videoGlass.animator().alphaValue = showGlass ? 1 : 0
+        }
         videoArea.layer?.backgroundColor = g ? NSColor.clear.cgColor : NSColor.black.cgColor
         avBackend.setTransparent(videoIsTransparent || audioOnly)
         waveform.isHidden = !audioOnly
@@ -806,6 +830,14 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     private func setTransparent(_ t: Bool) {
         videoIsTransparent = t
         refreshBackdrop()
+    }
+
+    /// AVFoundation can't decode this picture (e.g. an unusual codec): play it in WebKit instead.
+    func backendNeedsWebFallback() {
+        guard let t = currentTrack, t.kind == .local || t.kind == .remote else { return }
+        if debugLog { print("web fallback for \(t.displayName)"); fflush(stdout) }
+        use(htmlBackend)
+        htmlBackend.load(t)
     }
 
     func backendAudioOnly() {
@@ -837,7 +869,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     }
 
     private func neighbors() -> (list: [Track], index: Int)? {
-        if let c = current, let p = Library.shared.playlist(c.playlist), let i = p.tracks.firstIndex(where: { $0.id == c.track }) {
+        if let c = current, let p = list(c.playlist), let i = p.tracks.firstIndex(where: { $0.id == c.track }) {
             return (p.tracks, i)
         }
         return nil
@@ -850,7 +882,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
             else if auto { backend?.pause(); updateHUDState() }
         } else if let first = panel.tracks.first(where: { $0.isPlayableInSequence }) {
             play(playlist: panel.shownID, track: first.id)
-        } else if let c = current, let p = Library.shared.playlist(c.playlist), let first = p.tracks.first(where: { $0.isPlayableInSequence }) {
+        } else if let c = current, let p = list(c.playlist), let first = p.tracks.first(where: { $0.isPlayableInSequence }) {
             play(playlist: c.playlist, track: first.id)   // current track was deleted
         }
     }
@@ -894,6 +926,19 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     }
 
     @objc func togglePlaylist() { setPanel(open: !panelOpen) }
+
+    /// ⇧↑ / ⇧↓: the previous / next playlist, starting its first track (paused if you were paused).
+    func switchPlaylist(_ delta: Int) {
+        let all = Library.shared.playlists
+        guard all.count > 1, let i = all.firstIndex(where: { $0.id == panel.shownID }) else { return }
+        let p = all[(i + delta + all.count) % all.count]
+        panel.show(playlist: p.id)
+        toast.show("“\(p.name)”", symbol: "music.note.list", sticky: false)
+        let wasPlaying = backend?.isPlaying ?? false
+        if let first = p.tracks.first(where: { $0.isPlayableInSequence }) {
+            play(playlist: p.id, track: first.id, startPaused: !wasPlaying)
+        }
+    }
 
     private func updateHUDState() {
         panel.setTransport(playing: backend?.isPlaying ?? false, loop: currentTrack?.loop ?? false, hasTrack: current != nil)
@@ -1111,8 +1156,10 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     func panelLoopCurrent() { toggleLoop() }
     func panelOpenFiles() { openDocument(nil) }
     func panelNotice(_ text: String, symbol: String, sticky: Bool) { toast.show(text, symbol: symbol, sticky: sticky) }
+    func panelWantsToBeSeen() { if !panelOpen { setPanel(open: true) } }
 
     func panelToggleLoop(track: UUID) {
+        if let i = transient.tracks.firstIndex(where: { $0.id == track }) { transient.tracks[i].loop.toggle() }
         Library.shared.mutateTrack(track) { $0.loop.toggle() }
         updateHUDState()
     }
@@ -1125,6 +1172,15 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         if let tv = window.firstResponder as? NSTextView, tv.isEditable { return e }
         let mods = e.modifierFlags.intersection([.command, .control, .option])
         if !mods.isEmpty { return e }
+        if e.modifierFlags.contains(.shift) {
+            switch e.keyCode {
+            case 123: prevTrack(); return nil          // ⇧←
+            case 124: nextTrack(); return nil          // ⇧→
+            case 126: switchPlaylist(-1); return nil   // ⇧↑
+            case 125: switchPlaylist(1); return nil    // ⇧↓
+            default: break
+            }
+        }
         switch e.keyCode {
         case 123: skip(-10)                // ←
         case 124: skip(10)                 // →
@@ -1156,7 +1212,17 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         }
     }
 
-    func open(files: [URL]) { panel.add(files: files, at: nil, playFirst: true) }
+    /// Opened from Finder / the Dock / "Open With": play straight through once, outside any playlist.
+    /// (Exported playlists still import as playlists.)
+    func open(files: [URL]) {
+        let lists = files.filter { PlaylistFile.readNamed($0) != nil }
+        if !lists.isEmpty { panel.add(files: lists, at: nil, playFirst: true) }
+        let media = files.filter { !lists.contains($0) }
+        let tracks = MediaResolver.tracks(forFiles: media).map { t -> Track in var t = t; t.loop = false; return t }
+        guard let first = tracks.first else { return }
+        transient = Playlist(id: transientID, name: "Opened files", tracks: tracks)
+        play(playlist: transientID, track: first.id)
+    }
 
     @objc func paste(_ sender: Any?) {
         if !panel.acceptExternal(NSPasteboard.general, at: nil, playFirst: isIdle) {

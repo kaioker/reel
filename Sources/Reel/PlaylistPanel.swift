@@ -12,6 +12,8 @@ protocol PlaylistPanelDelegate: AnyObject {
     func panelOpenFiles()
     /// A short message on the video ("Added 3 items"). Sticky ones stay until replaced.
     func panelNotice(_ text: String, symbol: String, sticky: Bool)
+    /// Open the playlist (something was just added, so show where it went).
+    func panelWantsToBeSeen()
 }
 
 private let reorderType = NSPasteboard.PasteboardType("app.reel.track-rows")
@@ -665,8 +667,38 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     // MARK: Adding
 
     /// Adds resolved items to the shown playlist; autoplays the first one if nothing is playing.
+    /// A YouTube *playlist* link first asks: just this video, all its videos, or a new playlist.
     func add(text: String, at index: Int?, playFirst: Bool = false) {
-        let target = shownID
+        let ytLists = MediaResolver.youtubePlaylistLinks(in: text)
+        guard let first = ytLists.first, let window else { addResolved(text: text, into: shownID, at: index, playFirst: playFirst); return }
+        let a = NSAlert()
+        a.messageText = "That's a YouTube playlist"
+        a.informativeText = "How should Reel add it?"
+        a.addButton(withTitle: "All Videos")
+        a.addButton(withTitle: "New Playlist")
+        if first.video != nil { a.addButton(withTitle: "Just This Video") }
+        a.addButton(withTitle: "Cancel")
+        a.beginSheetModal(for: window) { r in
+            switch r {
+            case .alertFirstButtonReturn:
+                self.addResolved(text: text, into: self.shownID, at: index, playFirst: playFirst)
+            case .alertSecondButtonReturn:
+                Task { @MainActor in
+                    let title = await MediaResolver.youtubePlaylistTitle(first.list) ?? "YouTube playlist"
+                    let p = Library.shared.addPlaylist(named: title)
+                    self.show(playlist: p.id)
+                    self.addResolved(text: text, into: p.id, at: nil, playFirst: playFirst)
+                }
+            case .alertThirdButtonReturn where first.video != nil:
+                var single = text
+                for l in ytLists { if let v = l.video { single = single.replacingOccurrences(of: l.link, with: "https://youtu.be/\(v)") } }
+                self.addResolved(text: single, into: self.shownID, at: index, playFirst: playFirst)
+            default: break
+            }
+        }
+    }
+
+    private func addResolved(text: String, into target: UUID, at index: Int?, playFirst: Bool) {
         let n = MediaResolver.linkCount(in: text)
         guard n > 0 else { delegate?.panelNotice("No links or files in that", symbol: "exclamationmark.triangle.fill", sticky: false); return }
         setBusy(+1)
@@ -692,6 +724,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         }
         if let p = imported {
             show(playlist: p.id)
+            delegate?.panelWantsToBeSeen()
             delegate?.panelNotice("Imported “\(p.name)” · \(p.tracks.count) item\(p.tracks.count == 1 ? "" : "s")", symbol: "square.and.arrow.down.fill", sticky: false)
             if (playFirst || (delegate?.isIdle ?? false)) && media.isEmpty, let first = p.tracks.first {
                 delegate?.panelPlay(playlist: p.id, track: first.id)
@@ -718,10 +751,15 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         let what = items.count == 1 ? "“\(items[0].displayName)”" : "\(items.count) items"
         delegate?.panelNotice(willPlay && items.count == 1 ? "Playing \(what)" : "Added \(what) to “\(name)”",
                               symbol: willPlay ? "play.circle.fill" : "plus.circle.fill", sticky: false)
-        // Select the new rows so you can see where they went.
-        if id == shownID {
-            table.selectRowIndexes(IndexSet(at..<min(at + items.count, table.numberOfRows)), byExtendingSelection: false)
-            if !willPlay { table.scrollRowToVisible(min(at + items.count, table.numberOfRows) - 1); table.scrollRowToVisible(at) }
+        // Open the playlist and select the new rows so you can see where they went.
+        if id != shownID { show(playlist: id) }
+        delegate?.panelWantsToBeSeen()
+        let rows = IndexSet(at..<min(at + items.count, table.numberOfRows))
+        table.selectRowIndexes(rows, byExtendingSelection: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {   // after the playlist has opened
+            guard let last = rows.last, let firstRow = rows.first else { return }
+            self.table.scrollRowToVisible(last)
+            self.table.scrollRowToVisible(firstRow)
         }
         if willPlay, let first = items.first {
             delegate?.panelPlay(playlist: id, track: first.id)

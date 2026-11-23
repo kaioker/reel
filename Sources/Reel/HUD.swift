@@ -367,6 +367,8 @@ private final class MenuIconButton: NSButton {
 /// Big ▶ / ⏸ that pops in the middle of the video and fades out when playback toggles.
 final class PlayPauseFlash: NSView {
     private var fadeTimer: Timer?
+    /// Tests: freeze the current frame (at whatever scale the fade reached).
+    func debugHold() { fadeTimer?.invalidate() }
     private let disc = CALayer()
     private let icon = CALayer()
 
@@ -385,7 +387,12 @@ final class PlayPauseFlash: NSView {
     func flash(playing: Bool) {
         let d = max(36, min(84, min(bounds.width, bounds.height) * 0.28))
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        disc.frame = NSRect(x: bounds.midX - d / 2, y: bounds.midY - d / 2, width: d, height: d)
+        fadeTimer?.invalidate()
+        // Reset the scale from the previous flash *before* sizing — setting a layer's frame while it's
+        // transformed distorts it (that's what made the disc lopsided and the icon off-center).
+        disc.setAffineTransform(.identity)
+        disc.bounds = CGRect(x: 0, y: 0, width: d, height: d)
+        disc.position = CGPoint(x: bounds.midX, y: bounds.midY)
         disc.cornerRadius = d / 2
         let sym = playing ? "play.fill" : "pause.fill"
         if let img = NSImage(systemSymbolName: sym, accessibilityDescription: nil)?
@@ -397,7 +404,8 @@ final class PlayPauseFlash: NSView {
             icon.contentsScale = window?.backingScaleFactor ?? 2
             let s = tinted.size
             let nudge: CGFloat = playing ? d * 0.04 : 0   // optical centering for the triangle
-            icon.frame = NSRect(x: (d - s.width) / 2 + nudge, y: (d - s.height) / 2, width: s.width, height: s.height)
+            icon.bounds = CGRect(origin: .zero, size: s)
+            icon.position = CGPoint(x: d / 2 + nudge, y: d / 2)
         }
         CATransaction.commit()
 
