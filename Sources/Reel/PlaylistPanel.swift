@@ -188,6 +188,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     let dropHighlight: DropHighlight = { let d = DropHighlight(); d.dims = false; return d }()
     private var pendingReload = false
     private var resolving = 0
+    var isBusy: Bool { resolving > 0 }
 
     var tracks: [Track] { Library.shared.playlist(shownID)?.tracks ?? [] }
     /// Distance from the top of the window to the traffic lights' center (set by the controller).

@@ -317,6 +317,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     var debugIsPlaying: Bool { backend?.isPlaying ?? false }
     func debugHoldFlash() { flash.debugHold() }
     func debugSeek(_ t: Double) { backend?.seek(to: t) }
+    var debugInteraction: InteractionView { interaction }
     /// What the audio player is actually set to (AVPlayer gain), for REEL_VOLUME_TEST.
     var debugPlayerGain: Float { (backend as? AVBackend)?.player.volume ?? -1 }
     var debugVolumeLevel: Float { volume }
@@ -370,15 +371,22 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
         interaction.onClick = { [weak self] in self?.togglePlay() }
         interaction.onDoubleClick = { [weak self] in self?.window.toggleFullScreen(nil) }
-        interaction.onDrop = { [weak self] pb in self?.panel.acceptExternal(pb, at: nil, playFirst: true) ?? false }
+        interaction.onDrop = { [weak self] pb in
+            guard let self else { return false }
+            self.scheduleAutoClose(after: 2.5)   // pushed back again once the items actually land
+            return self.panel.acceptExternal(pb, at: nil, playFirst: true)
+        }
         interaction.onDragEnter = { [weak self] pb in
             guard let self, let s = PlaylistPanel.dropSummary(pb) else { return false }
             self.dropHighlight.show(title: s.isPlaylist ? "Drop to import playlist" : "Drop to play", detail: s.detail)
             // Open the playlist so you can carry the drag over and drop it at a particular spot.
-            if !self.panelOpen { self.setPanel(open: true) }
+            self.openPanelTemporarily()
             return true
         }
-        interaction.onDragExit = { [weak self] in self?.dropHighlight.hide() }
+        interaction.onDragExit = { [weak self] in
+            self?.dropHighlight.hide()
+            self?.scheduleAutoClose(after: 1.0)   // carried away without dropping → close again
+        }
         interaction.onContextMenu = { [weak self] _ in self?.showContextMenu() }
         interaction.onGestureBegin = { [weak self] g in self?.gestureBegan(g) }
         interaction.onScrub = { [weak self] f, done in self?.scrubTo(fraction: f, finished: done) }
@@ -954,7 +962,40 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         if on { window.collectionBehavior.insert(.fullScreenAuxiliary) } else { window.collectionBehavior.remove(.fullScreenAuxiliary) }
     }
 
-    @objc func togglePlaylist() { setPanel(open: !panelOpen) }
+    @objc func togglePlaylist() {
+        panelAutoOpened = false              // you're in charge of it now
+        autoCloseWork?.cancel()
+        setPanel(open: !panelOpen)
+    }
+
+    // MARK: Playlist opened by a drop / paste — shows where things went, then closes again
+
+    private var panelAutoOpened = false
+    private var autoCloseWork: DispatchWorkItem?
+
+    private func openPanelTemporarily() {
+        guard !panelOpen else { return }      // already open (you opened it): leave it alone
+        panelAutoOpened = true
+        setPanel(open: true)
+    }
+
+    private func scheduleAutoClose(after t: TimeInterval) {
+        guard panelAutoOpened else { return }
+        autoCloseWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in
+            guard let self, self.panelAutoOpened, self.panelOpen else { return }
+            let mouse = self.root.convert(self.window.mouseLocationOutsideOfEventStream, from: nil)
+            let busy = NSEvent.pressedMouseButtons != 0          // still dragging
+                || self.panel.frame.contains(mouse)                // you're working in the playlist
+                || self.panel.isBusy                               // links still resolving
+                || self.window.attachedSheet != nil                // e.g. the YouTube playlist question
+            if busy { self.scheduleAutoClose(after: 0.8); return }
+            self.panelAutoOpened = false
+            self.setPanel(open: false)
+        }
+        autoCloseWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + t, execute: w)
+    }
 
     /// ⇧↑ / ⇧↓: the previous / next playlist, starting its first track (paused if you were paused).
     func switchPlaylist(_ delta: Int) {
@@ -1189,7 +1230,10 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     func panelLoopCurrent() { toggleLoop() }
     func panelOpenFiles() { openDocument(nil) }
     func panelNotice(_ text: String, symbol: String, sticky: Bool) { toast.show(text, symbol: symbol, sticky: sticky) }
-    func panelWantsToBeSeen() { if !panelOpen { setPanel(open: true) } }
+    func panelWantsToBeSeen() {
+        openPanelTemporarily()
+        scheduleAutoClose(after: 2.5)
+    }
 
     func panelToggleLoop(track: UUID) {
         if let i = transient.tracks.firstIndex(where: { $0.id == track }) { transient.tracks[i].loop.toggle() }

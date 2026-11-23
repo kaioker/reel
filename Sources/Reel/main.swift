@@ -370,6 +370,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        if let clip = ProcessInfo.processInfo.environment["REEL_AUTOCLOSE_TEST"] {
+            let pl = self.player!
+            let pb = NSPasteboard(name: NSPasteboard.Name("reel-ac-\(getpid())")); pb.clearContents(); pb.writeObjects([URL(fileURLWithPath: clip) as NSURL])
+            let ia = pl.debugInteraction
+            let steps: [(Double, () -> Void)] = [
+                (1.0, { _ = ia.onDragEnter?(pb); print("A. drag over video → playlist open: \(pl.panelOpen)") }),
+                (0.6, { ia.onDragExit?(); _ = ia.onDrop?(pb); print("   dropped on video") }),
+                (1.5, { print("   1.5 s after drop → open: \(pl.panelOpen)  (showing where it went)") }),
+                (2.0, { print("   3.5 s after drop → open: \(pl.panelOpen)  (closed again)") }),
+                (0.5, { _ = ia.onDragEnter?(pb); print("B. drag over video → open: \(pl.panelOpen)") }),
+                (0.6, { ia.onDragExit?(); print("   dragged away without dropping") }),
+                (1.8, { print("   1.8 s later → open: \(pl.panelOpen)  (closed again)") }),
+                (0.3, { pl.togglePlaylist(); print("C. opened by you → open: \(pl.panelOpen)") }),
+                (0.6, { _ = pl.panel.acceptExternal(pb, at: nil, playFirst: false); print("   pasted a file") }),
+                (3.5, { print("   3.5 s later → open: \(pl.panelOpen)  (stays open — you opened it)"); pb.releaseGlobally(); fflush(stdout); NSApp.terminate(nil) }),
+            ]
+            var t = 0.0
+            for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
+        }
         if ProcessInfo.processInfo.environment["REEL_AUTOPLAY_TEST"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                 print(String(format: "3s after launch: playing=%@ t=%.2f", self.player.debugIsPlaying ? "yes" : "no", self.player.debugCurrentTime)); fflush(stdout)
