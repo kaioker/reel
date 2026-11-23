@@ -89,13 +89,13 @@ canvas.saveGState()
 canvas.addPath(bodyPath); canvas.clip()
 // background: indigo → violet (the flower crown's colours), with a teal glow from the eyes' colour
 // (start = bottom edge): light violet behind the creature, deep indigo up top
-let grad = CGGradient(colorsSpace: cs, colors: [rgb(0xd77ae8), rgb(0x7440c8), rgb(0x2a1466)] as CFArray, locations: [0, 0.48, 1])!   // lower half: rich pink · top: deep violet
+let grad = CGGradient(colorsSpace: cs, colors: [rgb(0xb8329c), rgb(0x9a35b4), rgb(0x6a3cc6), rgb(0x2a1466)] as CFArray, locations: [0, 0.3, 0.6, 1])!   // lower half: rich pink · top: deep violet
 canvas.drawLinearGradient(grad, start: CGPoint(x: 512, y: 100), end: CGPoint(x: 512, y: 924), options: [])
 let glow = CGGradient(colorsSpace: cs, colors: [rgb(0x37d6c8, 0.30), rgb(0x37d6c8, 0)] as CFArray, locations: [0, 1])!
 canvas.drawRadialGradient(glow, startCenter: CGPoint(x: 573, y: 512), startRadius: 0,
                           endCenter: CGPoint(x: 573, y: 512), endRadius: 420, options: [])
 // soft lavender light behind the creature's head so its dark outline reads against the background
-let halo = CGGradient(colorsSpace: cs, colors: [rgb(0xe4b8ff, 0.55), rgb(0xc08bf0, 0.22), rgb(0xc08bf0, 0)] as CFArray, locations: [0, 0.45, 1])!
+let halo = CGGradient(colorsSpace: cs, colors: [rgb(0xf0a6ea, 0.42), rgb(0xd47ad8, 0.18), rgb(0xd47ad8, 0)] as CFArray, locations: [0, 0.45, 1])!
 canvas.drawRadialGradient(halo, startCenter: CGPoint(x: 573, y: top(800, 0)), startRadius: 0,
                           endCenter: CGPoint(x: 573, y: top(800, 0)), endRadius: 420, options: [])
 
@@ -175,7 +175,7 @@ let topSheen = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.17), rgb(0xf
 canvas.drawLinearGradient(topSheen, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 600), options: [])
 canvas.restoreGState()
 // light pooling along the bottom inside edge (refraction), in the gradient's pink
-let pool = CGGradient(colorsSpace: cs, colors: [rgb(0xffb6ee, 0.22), rgb(0xffb6ee, 0)] as CFArray, locations: [0, 1])!
+let pool = CGGradient(colorsSpace: cs, colors: [rgb(0xff8fd8, 0.20), rgb(0xff8fd8, 0)] as CFArray, locations: [0, 1])!
 canvas.drawLinearGradient(pool, start: CGPoint(x: 512, y: 100), end: CGPoint(x: 512, y: 230), options: [])
 // glass edge: a soft inner band plus a crisp line, bright along the top, fading down the sides, gone at the bottom
 func edge(inset: CGFloat, width: CGFloat, alphas: [CGFloat]) {
