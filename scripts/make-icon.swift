@@ -255,6 +255,13 @@ if seeThroughHoles {
     canvas.setBlendMode(.clear)
     for h in holes { canvas.addPath(CGPath(roundedRect: h, cornerWidth: 14, cornerHeight: 14, transform: nil)) }
     canvas.fillPath()
+} else if let a = env["ICON_HOLE_ALPHA"].flatMap(Double.init) {
+    // partially see-through holes (experiment: how much transparency macOS 26 tolerates)
+    for h in holes {
+        let hp = CGPath(roundedRect: h, cornerWidth: 14, cornerHeight: 14, transform: nil)
+        canvas.saveGState(); canvas.setBlendMode(.clear); canvas.addPath(hp); canvas.fillPath(); canvas.restoreGState()
+        canvas.addPath(hp); canvas.setFillColor(rgb(0x0a0618, CGFloat(a))); canvas.fillPath()
+    }
 } else {
     // solid, so the icon fills its shape: deep holes that pick up a little of the background's colour
     for h in holes {
