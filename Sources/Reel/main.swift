@@ -13,7 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !pendingOpen.isEmpty { player.open(files: pendingOpen); pendingOpen = [] }
         // REEL_PLAY="<url or path>" adds it to the shown playlist and plays it (handy from a terminal)
         let env = ProcessInfo.processInfo.environment
-        if Bundle.main.bundleURL.pathExtension == "app", !env.keys.contains(where: { $0.hasPrefix("REEL_") }) {
+        if Bundle.main.bundleURL.pathExtension == "app",
+           !env.keys.contains(where: { $0.hasPrefix("REEL_") }) || env["REEL_STARTUP_UPDATE_TEST"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                 Task { @MainActor in await Updater.check(interactive: false, window: self.player.window) }
             }
