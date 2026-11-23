@@ -117,7 +117,9 @@ for k in 0..<count {
 let frameMidX = (strip.maxX + 924) / 2
 
 // big play button behind the creature
-let pc = CGPoint(x: frameMidX, y: 512)   // centre of the picture area; the creature covers its lower part
+// centred in the picture area, then nudged left by a third of the gap between the disc and the film edge
+let discGap = (frameMidX - 228) - strip.maxX
+let pc = CGPoint(x: frameMidX - discGap / 3, y: 512)
 // Liquid Glass disc behind it: frosted body, curved top highlight, light-catching rim, refraction glow
 let pr: CGFloat = 228
 let discRect = CGRect(x: pc.x - pr, y: pc.y - pr, width: pr * 2, height: pr * 2)
