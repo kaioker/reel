@@ -85,14 +85,42 @@ func rgb(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
     CGColor(srgbRed: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255, blue: CGFloat(hex & 255) / 255, alpha: a)
 }
 let body = CGRect(x: 100, y: 100, width: 824, height: 824)
-let bodyPath = CGPath(roundedRect: body, cornerWidth: 185, cornerHeight: 185, transform: nil)
 
-// soft shadow under the whole icon
-canvas.saveGState()
-canvas.setShadow(offset: CGSize(width: 0, height: -14), blur: 34, color: rgb(0x000000, 0.35))
-canvas.addPath(bodyPath); canvas.setFillColor(rgb(0x241c5c)); canvas.fillPath()
-canvas.restoreGState()
+/// Apple's continuous-corner ("squircle") rounded rect — the shape macOS masks app icons to.
+/// macOS 26 puts icons that don't match this shape inside a gray tile.
+func squircle(_ rect: CGRect, _ r: CGFloat) -> CGPath {
+    let p = CGMutablePath()
+    let (x0, y0, x1, y1) = (rect.minX, rect.minY, rect.maxX, rect.maxY)
+    p.move(to: CGPoint(x: x0 + 1.52866483 * r, y: y0))
+    // corner (x1, y0)
+    p.addLine(to: CGPoint(x: x1 - 1.52866483 * r, y: y0))
+    p.addCurve(to: CGPoint(x: x1 - 0.66993427 * r, y: y0 + 0.06549600 * r), control1: CGPoint(x: x1 - 1.08849323 * r, y: y0), control2: CGPoint(x: x1 - 0.86840689 * r, y: y0))
+    p.addCurve(to: CGPoint(x: x1 - 0.06549569 * r, y: y0 + 0.66993493 * r), control1: CGPoint(x: x1 - 0.37282392 * r, y: y0 + 0.16906599 * r), control2: CGPoint(x: x1 - 0.16906657 * r, y: y0 + 0.37282365 * r))
+    p.addCurve(to: CGPoint(x: x1, y: y0 + 1.52866471 * r), control1: CGPoint(x: x1, y: y0 + 0.86840701 * r), control2: CGPoint(x: x1, y: y0 + 1.08849299 * r))
+    // corner (x1, y1)
+    p.addLine(to: CGPoint(x: x1, y: y1 - 1.52866483 * r))
+    p.addCurve(to: CGPoint(x: x1 - 0.06549600 * r, y: y1 - 0.66993427 * r), control1: CGPoint(x: x1, y: y1 - 1.08849323 * r), control2: CGPoint(x: x1, y: y1 - 0.86840689 * r))
+    p.addCurve(to: CGPoint(x: x1 - 0.66993493 * r, y: y1 - 0.06549569 * r), control1: CGPoint(x: x1 - 0.16906599 * r, y: y1 - 0.37282392 * r), control2: CGPoint(x: x1 - 0.37282365 * r, y: y1 - 0.16906657 * r))
+    p.addCurve(to: CGPoint(x: x1 - 1.52866471 * r, y: y1), control1: CGPoint(x: x1 - 0.86840701 * r, y: y1), control2: CGPoint(x: x1 - 1.08849299 * r, y: y1))
+    // corner (x0, y1)
+    p.addLine(to: CGPoint(x: x0 + 1.52866483 * r, y: y1))
+    p.addCurve(to: CGPoint(x: x0 + 0.66993427 * r, y: y1 - 0.06549600 * r), control1: CGPoint(x: x0 + 1.08849323 * r, y: y1), control2: CGPoint(x: x0 + 0.86840689 * r, y: y1))
+    p.addCurve(to: CGPoint(x: x0 + 0.06549569 * r, y: y1 - 0.66993493 * r), control1: CGPoint(x: x0 + 0.37282392 * r, y: y1 - 0.16906599 * r), control2: CGPoint(x: x0 + 0.16906657 * r, y: y1 - 0.37282365 * r))
+    p.addCurve(to: CGPoint(x: x0, y: y1 - 1.52866471 * r), control1: CGPoint(x: x0, y: y1 - 0.86840701 * r), control2: CGPoint(x: x0, y: y1 - 1.08849299 * r))
+    // corner (x0, y0)
+    p.addLine(to: CGPoint(x: x0, y: y0 + 1.52866483 * r))
+    p.addCurve(to: CGPoint(x: x0 + 0.06549600 * r, y: y0 + 0.66993427 * r), control1: CGPoint(x: x0, y: y0 + 1.08849323 * r), control2: CGPoint(x: x0, y: y0 + 0.86840689 * r))
+    p.addCurve(to: CGPoint(x: x0 + 0.66993493 * r, y: y0 + 0.06549569 * r), control1: CGPoint(x: x0 + 0.16906599 * r, y: y0 + 0.37282392 * r), control2: CGPoint(x: x0 + 0.37282365 * r, y: y0 + 0.16906657 * r))
+    p.addCurve(to: CGPoint(x: x0 + 1.52866471 * r, y: y0), control1: CGPoint(x: x0 + 0.86840701 * r, y: y0), control2: CGPoint(x: x0 + 1.08849299 * r, y: y0))
+    p.closeSubpath()
+    return p
+}
+let cornerR: CGFloat = 824 * 0.2237
+let bodyPath = squircle(body, cornerR)
+let env = ProcessInfo.processInfo.environment
+let seeThroughHoles = env["ICON_SEE_THROUGH_HOLES"] != nil   // see-through holes make macOS 26 put the icon in a gray tile
 
+// (no baked-in drop shadow: macOS adds its own, and extra pixels outside the shape count as "not conforming")
 canvas.saveGState()
 canvas.addPath(bodyPath); canvas.clip()
 // background: indigo → violet (the flower crown's colours), with a teal glow from the eyes' colour
@@ -199,7 +227,7 @@ canvas.drawLinearGradient(pool, start: CGPoint(x: 512, y: 100), end: CGPoint(x: 
 // glass edge: a soft inner band plus a crisp line, bright along the top, fading down the sides, gone at the bottom
 func edge(inset: CGFloat, width: CGFloat, alphas: [CGFloat]) {
     canvas.saveGState()
-    canvas.addPath(CGPath(roundedRect: body.insetBy(dx: inset, dy: inset), cornerWidth: 185 - inset, cornerHeight: 185 - inset, transform: nil))
+    canvas.addPath(squircle(body.insetBy(dx: inset, dy: inset), cornerR - inset * 0.6))
     canvas.setLineWidth(width); canvas.replacePathWithStrokedPath(); canvas.clip()
     let g = CGGradient(colorsSpace: cs, colors: alphas.map { rgb(0xffffff, $0) } as CFArray, locations: [0, 0.45, 1])!
     canvas.drawLinearGradient(g, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 100), options: [])
@@ -222,9 +250,21 @@ canvas.restoreGState()   // end of the icon-shape clip
 
 // punch the sprocket holes (transparent all the way through)
 canvas.saveGState()
-canvas.setBlendMode(.clear)
-for h in holes { canvas.addPath(CGPath(roundedRect: h, cornerWidth: 14, cornerHeight: 14, transform: nil)) }
-canvas.fillPath()
+canvas.addPath(bodyPath); canvas.clip()
+if seeThroughHoles {
+    canvas.setBlendMode(.clear)
+    for h in holes { canvas.addPath(CGPath(roundedRect: h, cornerWidth: 14, cornerHeight: 14, transform: nil)) }
+    canvas.fillPath()
+} else {
+    // solid, so the icon fills its shape: deep holes that pick up a little of the background's colour
+    for h in holes {
+        canvas.saveGState()
+        canvas.addPath(CGPath(roundedRect: h, cornerWidth: 14, cornerHeight: 14, transform: nil)); canvas.clip()
+        let holeG = CGGradient(colorsSpace: cs, colors: [rgb(0x05030e), rgb(0x120b2c)] as CFArray, locations: [0, 1])!
+        canvas.drawLinearGradient(holeG, start: CGPoint(x: h.midX, y: h.maxY), end: CGPoint(x: h.midX, y: h.minY), options: [])
+        canvas.restoreGState()
+    }
+}
 canvas.restoreGState()
 // each hole looks cut through thick glass: a soft shadow inside the lower-right edge of the cut,
 // and a bright rim where light catches the top-left
