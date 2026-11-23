@@ -215,9 +215,15 @@ enum MediaResolver {
 
     /// Converts a transparent WebM to HEVC-with-alpha (which macOS plays with real transparency). Cached.
     static func alphaMovie(for url: URL, progress: (@Sendable (Double) -> Void)? = nil) async -> URL? {
+        await convertedMovie(for: url, keepAlpha: true, progress: progress)
+    }
+
+    /// Converts something macOS can't decode into HEVC it always can (cached). `keepAlpha` is for
+    /// transparent WebM; otherwise it's a plain conversion (e.g. VP9 variants Apple's decoder rejects).
+    static func convertedMovie(for url: URL, keepAlpha: Bool, progress: (@Sendable (Double) -> Void)? = nil) async -> URL? {
         guard let ffmpeg = findFFmpeg() else { return nil }
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Reel/alpha", isDirectory: true)
+            .appendingPathComponent(keepAlpha ? "Reel/alpha" : "Reel/converted", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         var key = url.absoluteString
         if url.isFileURL, let a = try? FileManager.default.attributesOfItem(atPath: url.path) {
@@ -250,11 +256,12 @@ enum MediaResolver {
                 // libvpx (not ffmpeg's native vp9 decoder) is what actually decodes the alpha plane.
                 // The software VP9-with-alpha decode is the slow part; the hardware encoder runs in
                 // speed-priority mode (~1.8× faster than default).
-                args += ["-c:v", "libvpx-vp9", "-i", input]
-                p.arguments = args + [
-                               "-c:v", "hevc_videotoolbox", "-alpha_quality", "0.9", "-tag:v", "hvc1", "-q:v", "70",
-                               "-realtime", "1", "-prio_speed", "1",
-                               "-c:a", "aac", tmp.path]
+                if keepAlpha { args += ["-c:v", "libvpx-vp9"] }
+                args += ["-i", input]
+                let video = keepAlpha
+                    ? ["-c:v", "hevc_videotoolbox", "-alpha_quality", "0.9", "-tag:v", "hvc1", "-q:v", "70"]
+                    : ["-c:v", "hevc_videotoolbox", "-tag:v", "hvc1", "-q:v", "65"]
+                p.arguments = args + video + ["-realtime", "1", "-prio_speed", "1", "-c:a", "aac", tmp.path]
                 let out = Pipe()
                 p.standardOutput = out
                 p.standardError = FileHandle.nullDevice

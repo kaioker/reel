@@ -776,6 +776,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         if pid != transientID { Prefs.lastPlaylist = pid.uuidString }   // remembered for autoplay on next launch
         emptyHint.isHidden = true
         loadToken += 1
+        fallbackStage = 0
         let token = loadToken
         if debugLog { print("PLAY \(track.displayName) [\(track.kind)] loop=\(track.loop)"); fflush(stdout) }
         showMessage("")
@@ -870,8 +871,12 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     }
 
     /// AVFoundation can't decode this picture (e.g. an unusual codec): play it in WebKit instead.
+    /// 0 = native player, 1 = tried WebKit, 2 = tried converting with ffmpeg.
+    private var fallbackStage = 0
+
     func backendNeedsWebFallback() {
-        guard let t = currentTrack, t.kind == .local || t.kind == .remote else { return }
+        guard let t = currentTrack, t.kind == .local || t.kind == .remote, fallbackStage == 0 else { return }
+        fallbackStage = 1
         if debugLog { print("web fallback for \(t.displayName)"); fflush(stdout) }
         use(htmlBackend)
         htmlBackend.load(t)
@@ -1056,6 +1061,32 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     func backendFailed(_ msg: String) {
         if debugLog { print("FAILED: \(msg)"); fflush(stdout) }
         guard let c = current else { return }
+        // Files and links macOS can't decode: try WebKit, then an ffmpeg conversion, before giving up.
+        if let t = currentTrack, t.kind == .local || t.kind == .remote, !t.isWebM || fallbackStage < 2 {
+            if fallbackStage == 0 && backend === avBackend {
+                backendNeedsWebFallback()
+                return
+            }
+            if fallbackStage <= 1, MediaResolver.findFFmpeg() != nil, let url = t.url {
+                fallbackStage = 2
+                let token = loadToken
+                use(avBackend)
+                avBackend.stop()
+                showMessage("Converting video…")
+                Task { @MainActor in
+                    let movie = await MediaResolver.convertedMovie(for: url, keepAlpha: false) { [weak self] f in
+                        DispatchQueue.main.async {
+                            guard let self, token == self.loadToken else { return }
+                            self.showMessage("Converting video… \(Int(f * 100))%")
+                        }
+                    }
+                    guard token == self.loadToken else { return }
+                    if let movie { self.showMessage(""); self.avBackend.loadURL(movie) }
+                    else { self.backendFailed("Couldn't convert it either") }
+                }
+                return
+            }
+        }
         showMessage("Can't play this:\n" + msg)
         // Move on after a moment, unless you've already picked something else.
         let w = DispatchWorkItem { [weak self] in
