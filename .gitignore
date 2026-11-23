@@ -1,0 +1,6 @@
+# Build output (recreate with ./build.sh)
+.build/
+.swiftpm/
+Reel.app/
+*.zip
+.DS_Store
