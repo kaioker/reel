@@ -23,7 +23,7 @@ final class HelpWindow: NSObject {
             ("", "Right-drag also works as two-finger-click drag on a trackpad, or ⌃-drag"),
             ("Two-finger swipe", "Same without clicking: sideways seeks, up/down is volume"),
             ("Mouse wheel", "Volume · ⇧ + wheel seeks"),
-            ("Right-click", "A row of icons (hover one for its name) — works even when Reel isn't focused"),
+            ("Right-click", "A row of icons — play, loop, on top, playlist, add, paste, full screen (works even when Reel isn't focused)"),
         ]),
         ("Window", [
             ("Drag the video", "Move the window"),

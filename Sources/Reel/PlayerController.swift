@@ -1308,6 +1308,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         let playing = backend?.isPlaying == true
         let items: [IconMenu.Item] = [
             .init(symbol: playing ? "pause.fill" : "play.fill", tip: playing ? "Pause" : "Play") { [weak self] _ in self?.togglePlay() },
+            .init(symbol: "repeat.1", tip: (currentTrack?.loop ?? false) ? "Stop looping this track (L)" : "Loop this track (L)",
+                  on: currentTrack?.loop ?? false) { [weak self] _ in self?.toggleLoop() },
             .init(symbol: Prefs.alwaysOnTop ? "pin.fill" : "pin", tip: "Always on top", on: Prefs.alwaysOnTop) { [weak self] _ in self?.togglePin() },
             .init(symbol: "sidebar.right", tip: panelOpen ? "Hide playlist" : "Show playlist", on: panelOpen) { [weak self] _ in self?.togglePlaylist() },
             .init(symbol: "plus", tip: "Add files…") { [weak self] _ in self?.openDocument(nil) },
