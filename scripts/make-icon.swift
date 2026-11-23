@@ -1,7 +1,8 @@
 // Builds AppIcon.icns from Design/icon-creature-source.jpg.
 //   swiftc -O scripts/make-icon.swift -o .build/make-icon && .build/make-icon
 // The creature is cut out of its flat gray background (flood fill from the edges, so the gray inside
-// the ears — fenced in by the dark outline — stays), then placed peeking up over a little video screen.
+// the ears — fenced in by the dark outline — stays), then placed peeking up in front of a big play
+// button, with a film edge down the left.
 import AppKit
 import CoreGraphics
 
@@ -87,45 +88,56 @@ canvas.restoreGState()
 canvas.saveGState()
 canvas.addPath(bodyPath); canvas.clip()
 // background: indigo → violet (the flower crown's colours), with a teal glow from the eyes' colour
-// (start = bottom edge): light violet behind the creature, deep indigo up top behind the screen
+// (start = bottom edge): light violet behind the creature, deep indigo up top
 let grad = CGGradient(colorsSpace: cs, colors: [rgb(0x9277ea), rgb(0x5140b4), rgb(0x221c58)] as CFArray, locations: [0, 0.5, 1])!
 canvas.drawLinearGradient(grad, start: CGPoint(x: 512, y: 100), end: CGPoint(x: 512, y: 924), options: [])
 let glow = CGGradient(colorsSpace: cs, colors: [rgb(0x37d6c8, 0.30), rgb(0x37d6c8, 0)] as CFArray, locations: [0, 1])!
-canvas.drawRadialGradient(glow, startCenter: CGPoint(x: 512, y: top(330, 0)), startRadius: 0,
-                          endCenter: CGPoint(x: 512, y: top(330, 0)), endRadius: 460, options: [])
+canvas.drawRadialGradient(glow, startCenter: CGPoint(x: 580, y: top(352, 0)), startRadius: 0,
+                          endCenter: CGPoint(x: 580, y: top(352, 0)), endRadius: 420, options: [])
 // soft lavender light behind the creature's head so its dark outline reads against the background
 let halo = CGGradient(colorsSpace: cs, colors: [rgb(0xc8b8ff, 0.55), rgb(0xa48bff, 0.22), rgb(0xa48bff, 0)] as CFArray, locations: [0, 0.45, 1])!
-canvas.drawRadialGradient(halo, startCenter: CGPoint(x: 512, y: top(800, 0)), startRadius: 0,
-                          endCenter: CGPoint(x: 512, y: top(800, 0)), endRadius: 420, options: [])
+canvas.drawRadialGradient(halo, startCenter: CGPoint(x: 580, y: top(800, 0)), startRadius: 0,
+                          endCenter: CGPoint(x: 580, y: top(800, 0)), endRadius: 420, options: [])
 
-// the little video window
-let screen = CGRect(x: 182, y: top(176, 360), width: 660, height: 360)
-canvas.saveGState()
-canvas.setShadow(offset: CGSize(width: 0, height: -10), blur: 30, color: rgb(0x000000, 0.45))
-canvas.addPath(CGPath(roundedRect: screen, cornerWidth: 46, cornerHeight: 46, transform: nil))
-canvas.setFillColor(rgb(0x0d0e1a, 0.94)); canvas.fillPath()
-canvas.restoreGState()
-canvas.addPath(CGPath(roundedRect: screen.insetBy(dx: 1.5, dy: 1.5), cornerWidth: 45, cornerHeight: 45, transform: nil))
-canvas.setStrokeColor(rgb(0xffffff, 0.14)); canvas.setLineWidth(3); canvas.strokePath()
-// window buttons, like Reel's (three + the blue playlist one)
-let dotY = screen.maxY - 40
-for (i, c) in [0xff5c5f, 0xfac800, 0x34c759].enumerated() {
-    canvas.setFillColor(rgb(UInt32(c))); canvas.fillEllipse(in: CGRect(x: screen.minX + 30 + CGFloat(i) * 34, y: dotY - 11, width: 22, height: 22))
+// film edge down the left: a dark strip with rounded square sprocket holes
+let strip = CGRect(x: 100, y: 100, width: 108, height: 824)
+canvas.setFillColor(rgb(0x0f0c26, 0.62)); canvas.fill(strip)
+canvas.setFillColor(rgb(0xffffff, 0.10)); canvas.fill(CGRect(x: strip.maxX - 3, y: 100, width: 3, height: 824))   // strip edge
+let hole: CGFloat = 46, pitch: CGFloat = 82
+var hy: CGFloat = 100 + (824 - (floor(824 / pitch) * pitch - (pitch - hole))) / 2
+while hy + hole <= 924 {
+    canvas.addPath(CGPath(roundedRect: CGRect(x: strip.midX - hole / 2 - 4, y: hy, width: hole, height: hole), cornerWidth: 11, cornerHeight: 11, transform: nil))
+    canvas.setFillColor(rgb(0xe9e1ff, 0.82)); canvas.fillPath()
+    hy += pitch
 }
-canvas.setFillColor(rgb(0x2b8cff)); canvas.fillEllipse(in: CGRect(x: screen.maxX - 52, y: dotY - 11, width: 22, height: 22))
-// play button
-let pc = CGPoint(x: 512, y: top(300, 0))
-canvas.setFillColor(rgb(0xffffff, 0.12)); canvas.fillEllipse(in: CGRect(x: pc.x - 78, y: pc.y - 78, width: 156, height: 156))
-let tri = CGMutablePath()
-tri.move(to: CGPoint(x: pc.x - 26, y: pc.y + 42)); tri.addLine(to: CGPoint(x: pc.x - 26, y: pc.y - 42)); tri.addLine(to: CGPoint(x: pc.x + 46, y: pc.y))
-tri.closeSubpath()
-canvas.addPath(tri); canvas.setFillColor(rgb(0xffffff, 0.95)); canvas.fillPath()
 
-// the creature, peeking up from the bottom edge over the screen
+// big play button behind the creature
+let pc = CGPoint(x: 580, y: top(352, 0))
+let pr: CGFloat = 228
+canvas.saveGState()
+canvas.setShadow(offset: CGSize(width: 0, height: -8), blur: 30, color: rgb(0x150f40, 0.45))
+canvas.setFillColor(rgb(0xffffff, 0.16)); canvas.fillEllipse(in: CGRect(x: pc.x - pr, y: pc.y - pr, width: pr * 2, height: pr * 2))
+canvas.restoreGState()
+canvas.setStrokeColor(rgb(0xffffff, 0.30)); canvas.setLineWidth(4)
+canvas.strokeEllipse(in: CGRect(x: pc.x - pr + 2, y: pc.y - pr + 2, width: pr * 2 - 4, height: pr * 2 - 4))
+// rounded triangle: fill + a thick round-joined stroke of the same colour softens the corners
+let tri = CGMutablePath()
+let th: CGFloat = 112   // half height
+tri.move(to: CGPoint(x: pc.x - 62, y: pc.y + th)); tri.addLine(to: CGPoint(x: pc.x - 62, y: pc.y - th))
+tri.addLine(to: CGPoint(x: pc.x + 118, y: pc.y)); tri.closeSubpath()
+canvas.saveGState()
+canvas.setShadow(offset: CGSize(width: 0, height: -6), blur: 18, color: rgb(0x1b1250, 0.40))
+canvas.beginTransparencyLayer(auxiliaryInfo: nil)          // one shadow for fill + stroke together
+canvas.setFillColor(rgb(0xffffff)); canvas.addPath(tri); canvas.fillPath()
+canvas.setStrokeColor(rgb(0xffffff)); canvas.setLineWidth(30); canvas.setLineJoin(.round); canvas.addPath(tri); canvas.strokePath()
+canvas.endTransparencyLayer()
+canvas.restoreGState()
+
+// the creature, peeking up from the bottom edge in front of the play button
 let cw = CGFloat(creature.width), ch = CGFloat(creature.height)
 let scale: CGFloat = 760 / cw
 let dw = cw * scale, dh = ch * scale
-let dest = CGRect(x: 512 - dw / 2, y: 100, width: dw, height: dh)     // its cut-off bottom sits on the icon's bottom edge
+let dest = CGRect(x: 580 - dw / 2, y: 100, width: dw, height: dh)     // its cut-off bottom sits on the icon's bottom edge
 canvas.saveGState()
 canvas.setShadow(offset: CGSize(width: 0, height: 8), blur: 26, color: rgb(0x000000, 0.55))
 canvas.interpolationQuality = .high
