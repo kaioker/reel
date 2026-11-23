@@ -263,11 +263,15 @@ if seeThroughHoles {
         canvas.addPath(hp); canvas.setFillColor(rgb(0x0a0618, CGFloat(a))); canvas.fillPath()
     }
 } else {
-    // solid, so the icon fills its shape: deep holes that pick up a little of the background's colour
+    // Deep holes, as see-through as macOS 26 allows: 98% opaque. (Tested through IconServices:
+    // 95% and below gets the gray tile, 98% doesn't.) ICON_HOLE_OPACITY overrides for testing.
+    let holeAlpha = CGFloat(env["ICON_HOLE_OPACITY"].flatMap(Double.init) ?? 0.98)
     for h in holes {
+        let hp = CGPath(roundedRect: h, cornerWidth: 14, cornerHeight: 14, transform: nil)
+        canvas.saveGState(); canvas.setBlendMode(.clear); canvas.addPath(hp); canvas.fillPath(); canvas.restoreGState()
         canvas.saveGState()
-        canvas.addPath(CGPath(roundedRect: h, cornerWidth: 14, cornerHeight: 14, transform: nil)); canvas.clip()
-        let holeG = CGGradient(colorsSpace: cs, colors: [rgb(0x05030e), rgb(0x120b2c)] as CFArray, locations: [0, 1])!
+        canvas.addPath(hp); canvas.clip()
+        let holeG = CGGradient(colorsSpace: cs, colors: [rgb(0x05030e, holeAlpha), rgb(0x120b2c, holeAlpha)] as CFArray, locations: [0, 1])!
         canvas.drawLinearGradient(holeG, start: CGPoint(x: h.midX, y: h.maxY), end: CGPoint(x: h.midX, y: h.minY), options: [])
         canvas.restoreGState()
     }
