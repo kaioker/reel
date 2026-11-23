@@ -101,8 +101,19 @@ canvas.drawRadialGradient(halo, startCenter: CGPoint(x: 573, y: top(800, 0)), st
 
 // film edge down the left: a dark strip with rounded square sprocket holes
 let strip = CGRect(x: 100, y: 100, width: 124, height: 824)
-canvas.setFillColor(rgb(0x0f0c26, 0.62)); canvas.fill(strip)
-canvas.setFillColor(rgb(0xffffff, 0.10)); canvas.fill(CGRect(x: strip.maxX - 3, y: 100, width: 3, height: 824))   // strip edge
+// glass strip: deeper at the outer edge, lifting toward the picture, with a soft vertical sheen
+canvas.saveGState()
+canvas.clip(to: strip)
+let stripG = CGGradient(colorsSpace: cs, colors: [rgb(0x0b0820, 0.74), rgb(0x150f36, 0.58), rgb(0x241a52, 0.46)] as CFArray, locations: [0, 0.6, 1])!
+canvas.drawLinearGradient(stripG, start: CGPoint(x: strip.minX, y: 512), end: CGPoint(x: strip.maxX, y: 512), options: [])
+let stripSheen = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.10), rgb(0xffffff, 0.0), rgb(0xffffff, 0.04)] as CFArray, locations: [0, 0.5, 1])!
+canvas.drawLinearGradient(stripSheen, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 100), options: [])
+canvas.restoreGState()
+// where the strip meets the picture: a bright glass line over a thin dark groove
+canvas.setFillColor(rgb(0x000000, 0.22)); canvas.fill(CGRect(x: strip.maxX, y: 100, width: 3, height: 824))
+let seam = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.36), rgb(0xffffff, 0.14), rgb(0xffffff, 0.06)] as CFArray, locations: [0, 0.5, 1])!
+canvas.saveGState(); canvas.clip(to: CGRect(x: strip.maxX - 3, y: 100, width: 3, height: 824))
+canvas.drawLinearGradient(seam, start: CGPoint(x: 0, y: 924), end: CGPoint(x: 0, y: 100), options: []); canvas.restoreGState()
 // sprocket holes — punched right through the icon at the very end, so they're truly transparent
 let hole: CGFloat = 60, pitch: CGFloat = 100
 // full height, evenly spaced and symmetric about the middle; the ones at the very top and bottom
@@ -207,13 +218,26 @@ canvas.setBlendMode(.clear)
 for h in holes { canvas.addPath(CGPath(roundedRect: h, cornerWidth: 14, cornerHeight: 14, transform: nil)) }
 canvas.fillPath()
 canvas.restoreGState()
-// faint inner rim so the holes read on light and dark backgrounds
+// each hole looks cut through thick glass: a soft shadow inside the lower-right edge of the cut,
+// and a bright rim where light catches the top-left
 canvas.saveGState()
-canvas.addPath(bodyPath); canvas.clip()            // rims only where there's icon
+canvas.addPath(bodyPath); canvas.clip()            // only where there's icon
 for h in holes {
-    canvas.addPath(CGPath(roundedRect: h.insetBy(dx: -1, dy: -1), cornerWidth: 15, cornerHeight: 15, transform: nil))
+    let ring = CGPath(roundedRect: h.insetBy(dx: -1.5, dy: -1.5), cornerWidth: 15.5, cornerHeight: 15.5, transform: nil)
+    // shadow band just outside the hole's lower-right (depth)
+    canvas.saveGState()
+    canvas.addPath(CGPath(roundedRect: h.insetBy(dx: -7, dy: -7), cornerWidth: 20, cornerHeight: 20, transform: nil))
+    canvas.addPath(ring); canvas.clip(using: .evenOdd)
+    let depth = CGGradient(colorsSpace: cs, colors: [rgb(0x000000, 0.0), rgb(0x000000, 0.0), rgb(0x05030f, 0.40)] as CFArray, locations: [0, 0.45, 1])!
+    canvas.drawLinearGradient(depth, start: CGPoint(x: h.minX - 7, y: h.maxY + 7), end: CGPoint(x: h.maxX + 7, y: h.minY - 7), options: [])
+    canvas.restoreGState()
+    // light-catching rim
+    canvas.saveGState()
+    canvas.addPath(ring); canvas.setLineWidth(3); canvas.replacePathWithStrokedPath(); canvas.clip()
+    let rimG = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.62), rgb(0xffffff, 0.16), rgb(0xffffff, 0.05)] as CFArray, locations: [0, 0.5, 1])!
+    canvas.drawLinearGradient(rimG, start: CGPoint(x: h.minX, y: h.maxY), end: CGPoint(x: h.maxX, y: h.minY), options: [])
+    canvas.restoreGState()
 }
-canvas.setStrokeColor(rgb(0xffffff, 0.22)); canvas.setLineWidth(2); canvas.strokePath()
 canvas.restoreGState()
 
 let icon = canvas.makeImage()!
