@@ -6,3 +6,4 @@ Reel.app/
 .DS_Store
 .deps/
 .deps-build.log
+.deps-libs-build.log

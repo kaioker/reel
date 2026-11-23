@@ -298,6 +298,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     private lazy var avBackend: AVBackend = { let b = AVBackend(); b.delegate = self; return b }()
     private lazy var ytBackend: YouTubeBackend = { let b = YouTubeBackend(); b.delegate = self; return b }()
     private lazy var htmlBackend: HTMLVideoBackend = { let b = HTMLVideoBackend(); b.delegate = self; return b }()
+    /// In-app FFmpeg decoding: transparent WebM and anything macOS's own player can't decode.
+    private lazy var ffBackend: FFBackend = { let b = FFBackend(); b.delegate = self; return b }()
     private let videoGlass: NSView = {
         if #available(macOS 26.0, *) {
             let g = NSGlassEffectView(); g.cornerRadius = 0; return g
@@ -321,6 +323,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     func debugHoldFlash() { flash.debugHold() }
     func debugSeek(_ t: Double) { backend?.seek(to: t) }
     var debugInteraction: InteractionView { interaction }
+    var debugBackendName: String { backend.map { String(describing: type(of: $0)) } ?? "-" }
+    var debugAudio: String { (backend as? FFBackend)?.debugAudioRendering ?? "-" }
     /// What the audio player is actually set to (AVPlayer gain), for REEL_VOLUME_TEST.
     var debugPlayerGain: Float { (backend as? AVBackend)?.player.volume ?? -1 }
     var debugVolumeLevel: Float { volume }
@@ -810,8 +814,15 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
             Task { @MainActor in
                 let alpha = await MediaResolver.webmHasAlpha(url)
                 guard token == self.loadToken else { return }
-                if alpha, MediaResolver.findFFmpeg() != nil {
-                    // WebKit drops WebM transparency, so convert once to HEVC-with-alpha and play that.
+                if alpha {
+                    // WebKit drops WebM transparency: decode it in-app (libvpx keeps the alpha) — plays at once.
+                    self.fallbackStage = 1
+                    self.use(self.ffBackend)
+                    self.ffBackend.start(url: url)
+                    return
+                }
+                if false, alpha, MediaResolver.findFFmpeg() != nil {
+                    // (old path: convert once to HEVC-with-alpha — now only reached via the failure chain)
                     self.use(self.avBackend)
                     self.showMessage("Preparing transparent video…")
                     let movie = await MediaResolver.alphaMovie(for: url) { [weak self] f in
@@ -878,12 +889,13 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     /// 0 = native player, 1 = tried WebKit, 2 = tried converting with ffmpeg.
     private var fallbackStage = 0
 
+    /// macOS's player (or WebKit) can't decode this: decode it in-app with FFmpeg instead.
     func backendNeedsWebFallback() {
-        guard let t = currentTrack, t.kind == .local || t.kind == .remote, fallbackStage == 0 else { return }
+        guard let t = currentTrack, t.kind == .local || t.kind == .remote, fallbackStage == 0, let url = t.url else { return }
         fallbackStage = 1
-        if debugLog { print("web fallback for \(t.displayName)"); fflush(stdout) }
-        use(htmlBackend)
-        htmlBackend.load(t)
+        if debugLog { print("in-app decoder for \(t.displayName)"); fflush(stdout) }
+        use(ffBackend)
+        ffBackend.start(url: url)
     }
 
     func backendAudioOnly() {
@@ -1070,7 +1082,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         guard let c = current else { return }
         // Files and links macOS can't decode: try WebKit, then an ffmpeg conversion, before giving up.
         if let t = currentTrack, t.kind == .local || t.kind == .remote, !t.isWebM || fallbackStage < 2 {
-            if fallbackStage == 0 && backend === avBackend {
+            if fallbackStage == 0 && (backend === avBackend || backend === htmlBackend) {
                 backendNeedsWebFallback()
                 return
             }
@@ -1081,7 +1093,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
                 avBackend.stop()
                 showMessage("Converting video…")
                 Task { @MainActor in
-                    let movie = await MediaResolver.convertedMovie(for: url, keepAlpha: false) { [weak self] f in
+                    let movie = await MediaResolver.convertedMovie(for: url, keepAlpha: t.isWebM) { [weak self] f in
                         DispatchQueue.main.async {
                             guard let self, token == self.loadToken else { return }
                             self.showMessage("Converting video… \(Int(f * 100))%")

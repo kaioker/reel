@@ -7,7 +7,7 @@ A tiny, QuickTime-style video player for macOS that stays on top — with playli
 - Always on top by default (⌘T), so it doesn't slide behind other apps
 - Collapsible playlist beside the video, multiple playlists, export/import as `.json`
 - Plays video & audio files, direct links, HLS, YouTube videos and playlists, Bilibili, and WebM
-  (transparent WebM and unusual formats are handled by a small FFmpeg built into the app — nothing to install)
+  (transparent WebM and formats macOS can't decode play right away through FFmpeg built into the app — nothing to install)
 
 ## Install
 
@@ -24,8 +24,8 @@ Or grab `Reel.zip` from the [Releases](../../releases) page, unzip it, and drag 
 ## Build from source
 
 Requires macOS 13+, the Swift toolchain (Xcode or the Command Line Tools), and `brew install libvpx`
-(linked into the bundled FFmpeg). The first `./build.sh` downloads FFmpeg's source and builds it once
-(cached in `.deps/`). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+(linked into the bundled FFmpeg). The first `./build.sh` downloads FFmpeg's source and builds its decoding libraries and a small
+`ffmpeg` once (cached in `.deps/`). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ```sh
 ./build.sh            # builds Reel.app here

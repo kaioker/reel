@@ -55,7 +55,8 @@ final class HelpWindow: NSObject {
             ("⌘V", "Paste links — every link on the clipboard is added"),
             ("+  or  ⌘O", "Choose files"),
             ("Works with", "Video & audio files, direct links, HLS streams, YouTube videos and playlists, Bilibili"),
-            ("WebM", "Plays too; transparent WebM is see-through, with glass behind it while the playlist or window buttons show (uses ffmpeg if installed)"),
+            ("WebM", "Plays too; transparent WebM is see-through, with glass behind it while the playlist or window buttons show"),
+            ("Unusual formats", "Videos macOS can't decode play through Reel's built-in FFmpeg decoder"),
             ("Audio only", "Shows the waveform"),
         ]),
         ("Sharing playlists", [

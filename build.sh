@@ -6,6 +6,8 @@
 # The last version is kept in ./VERSION (without the leading "v").
 set -e
 cd "$(dirname "$0")"
+# FFmpeg's decoding libraries for the in-app decoder (built once, cached in .deps/)
+[[ -f .deps/ffmpeg-shared/lib/libavcodec.dylib ]] || ./scripts/build-ffmpeg-libs.sh
 swift build -c release
 
 YW=$(date +%g.%V)
@@ -17,6 +19,16 @@ APP="Reel.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Reel "$APP/Contents/MacOS/Reel"
+# In-app decoder libraries → Contents/Frameworks (separate, replaceable files, as the LGPL asks)
+mkdir -p "$APP/Contents/Frameworks"
+for lib in .deps/ffmpeg-shared/lib/lib*.dylib; do
+  [[ -L "$lib" ]] && continue
+  name=$(otool -D "$lib" | tail -1); name=${name##*/}      # the name the app looks it up by (libavcodec.63.dylib)
+  cp "$lib" "$APP/Contents/Frameworks/$name"
+done
+# drop the development-only library path baked in by Package.swift
+install_name_tool -delete_rpath "$PWD/.deps/ffmpeg-shared/lib" "$APP/Contents/MacOS/Reel" 2>/dev/null || true
+for lib in "$APP/Contents/Frameworks/"*.dylib; do codesign --force --sign - "$lib" >/dev/null 2>&1 || true; done
 [ -f AppIcon.icns ] && cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/" 2>/dev/null || true
 

@@ -431,6 +431,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        if ProcessInfo.processInfo.environment["REEL_FF_TEST"] != nil {
+            let pl = self.player!
+            let t0 = Date()
+            var firstMove: Double?
+            let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+                if firstMove == nil, pl.debugCurrentTime > 0.05 { firstMove = Date().timeIntervalSince(t0) }
+            }
+            let seekTo = Double(ProcessInfo.processInfo.environment["REEL_FF_SEEK"] ?? "") ?? 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                print(String(format: "engine: %@ · playing from launch after %.2fs · t=%.1f · audio: %@", pl.debugBackendName, firstMove ?? -1, pl.debugCurrentTime, pl.debugAudio))
+                if seekTo > 0 { pl.debugSeek(seekTo) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    if seekTo > 0 { print(String(format: "after seek to %.0f: t=%.1f playing=%@", seekTo, pl.debugCurrentTime, pl.debugIsPlaying ? "yes" : "no")) }
+                    let wait = Double(ProcessInfo.processInfo.environment["REEL_FF_WAIT"] ?? "") ?? 0
+                    DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+                        if wait > 0 { print(String(format: "later: t=%.1f playing=%@", pl.debugCurrentTime, pl.debugIsPlaying ? "yes" : "no")) }
+                        timer.invalidate(); fflush(stdout); NSApp.terminate(nil)
+                    }
+                }
+            }
+        }
         if ProcessInfo.processInfo.environment["REEL_AUTOPLAY_TEST"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                 print(String(format: "3s after launch: playing=%@ t=%.2f", self.player.debugIsPlaying ? "yes" : "no", self.player.debugCurrentTime)); fflush(stdout)

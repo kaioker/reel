@@ -19,7 +19,7 @@ mkdir -p "$DEPS"
 # libvpx: link the static archive only (a folder with just libvpx.a, so the linker can't pick the .dylib)
 VPX=$(brew --prefix libvpx 2>/dev/null || echo /opt/homebrew/opt/libvpx)
 [[ -f "$VPX/lib/libvpx.a" ]] || { echo "Need libvpx: brew install libvpx"; exit 1; }
-mkdir -p "$DEPS/vpx-static/lib"; cp "$VPX/lib/libvpx.a" "$DEPS/vpx-static/lib/"; cp -R "$VPX/include" "$DEPS/vpx-static/"
+rm -rf "$DEPS/vpx-static"; mkdir -p "$DEPS/vpx-static/lib"; cp "$VPX/lib/libvpx.a" "$DEPS/vpx-static/lib/"; cp -R "$VPX/include" "$DEPS/vpx-static/"
 
 cd "$DEPS"
 if [[ ! -d "ffmpeg-$VER" ]]; then
