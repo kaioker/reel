@@ -13,6 +13,8 @@ protocol BackendDelegate: AnyObject {
 }
 
 protocol PlayerBackend: AnyObject {
+    /// false = load the track but stay paused (used on launch)
+    var autoplay: Bool { get set }
     var view: NSView { get }
     var delegate: BackendDelegate? { get set }
     var currentTime: Double { get }
@@ -50,6 +52,7 @@ final class PlayerLayerView: NSView {
 }
 
 final class AVBackend: NSObject, PlayerBackend {
+    var autoplay = true
     weak var delegate: BackendDelegate?
     let player = AVPlayer()
     private let layerView = PlayerLayerView()
@@ -138,7 +141,7 @@ final class AVBackend: NSObject, PlayerBackend {
             self?.delegate?.backendDidEnd()
         }
         player.replaceCurrentItem(with: item)
-        player.play()
+        if autoplay { player.play() } else { player.pause() }
     }
 
     func play() { player.play() }
@@ -157,6 +160,7 @@ final class AVBackend: NSObject, PlayerBackend {
 // MARK: - HTML5 <video> in WebKit (WebM and other formats AVFoundation can't open)
 
 final class HTMLVideoBackend: NSObject, PlayerBackend, WKScriptMessageHandler {
+    var autoplay = true
     weak var delegate: BackendDelegate?
     private let web: WKWebView
     var view: NSView { web }
@@ -185,7 +189,7 @@ final class HTMLVideoBackend: NSObject, PlayerBackend, WKScriptMessageHandler {
         let html = """
         <!doctype html><html><head><style>html,body{margin:0;height:100%;background:#000;overflow:hidden}
         video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}</style></head><body>
-        <video id="v" src="\(src)" autoplay playsinline></video>
+        <video id="v" src="\(src)" \(autoplay ? "autoplay" : "preload=\"auto\"") playsinline></video>
         <script>
         const v=document.getElementById('v');
         function post(o){ try{ webkit.messageHandlers.reel.postMessage(o) }catch(e){} }
@@ -246,6 +250,7 @@ private final class WeakHandler: NSObject, WKScriptMessageHandler {
 }
 
 final class YouTubeBackend: NSObject, PlayerBackend, WKScriptMessageHandler, WKNavigationDelegate {
+    var autoplay = true
     weak var delegate: BackendDelegate?
     private let web: WKWebView
     var view: NSView { web }
@@ -285,7 +290,7 @@ final class YouTubeBackend: NSObject, PlayerBackend, WKScriptMessageHandler, WKN
     func load(_ track: Track) {
         currentTime = 0; duration = track.duration ?? 0
         let id = track.source.replacingOccurrences(of: "'", with: "")
-        js("reelLoad('\(id)')")
+        js("reelLoad('\(id)', \(autoplay))")
         js("reelVolume(\(Self.ytVolume(volume)))")
     }
     func play() { js("reelPlay()") }
@@ -340,23 +345,25 @@ final class YouTubeBackend: NSObject, PlayerBackend, WKScriptMessageHandler, WKN
     #p,iframe{position:absolute;inset:0;width:100%!important;height:100%!important;border:0}</style>
     </head><body><div id="p"></div>
     <script>
-    var player=null, apiReady=false, queued=null;
+    var player=null, apiReady=false, queued=null, queuedPlay=true, firstPlay=true;
     function post(o){ try{ webkit.messageHandlers.reel.postMessage(o) }catch(e){} }
-    function onYouTubeIframeAPIReady(){ apiReady=true; post({type:'ready'}); if(queued){ var q=queued; queued=null; reelLoad(q);} }
-    function make(id){
+    function onYouTubeIframeAPIReady(){ apiReady=true; post({type:'ready'}); if(queued){ var q=queued; queued=null; reelLoad(q, queuedPlay);} }
+    function make(id, play){
+      firstPlay = play;
       player = new YT.Player('p', {width:'100%', height:'100%', videoId:id, host:'https://www.youtube.com',
-        playerVars:{autoplay:1, controls:0, disablekb:1, fs:0, iv_load_policy:3, rel:0, playsinline:1,
+        playerVars:{autoplay:(play?1:0), controls:0, disablekb:1, fs:0, iv_load_policy:3, rel:0, playsinline:1,
                     modestbranding:1, enablejsapi:1, origin:'\(origin)', widget_referrer:'\(origin)'},
         events:{
-          onReady:function(e){ e.target.playVideo(); },
+          onReady:function(e){ if(firstPlay) e.target.playVideo(); },
           onStateChange:function(e){ post({type:'state', s:e.data}); },
           onError:function(e){ post({type:'error', code:e.data}); }
         }});
     }
-    function reelLoad(id){
-      if(!apiReady){ queued=id; return; }
-      if(!player || !player.loadVideoById){ if(!player) make(id); else setTimeout(function(){reelLoad(id)},200); return; }
-      player.loadVideoById(id);
+    function reelLoad(id, play){
+      if(play===undefined) play=true;
+      if(!apiReady){ queued=id; queuedPlay=play; return; }
+      if(!player || !player.loadVideoById){ if(!player) make(id, play); else setTimeout(function(){reelLoad(id, play)},200); return; }
+      if(play) player.loadVideoById(id); else player.cueVideoById(id);
     }
     function reelPlay(){ player && player.playVideo && player.playVideo(); }
     function reelPause(){ player && player.pauseVideo && player.pauseVideo(); }

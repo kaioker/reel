@@ -17,7 +17,8 @@ Needs the GitHub CLI (`brew install gh`, then `gh auth login`):
 ./install.sh
 ```
 
-Downloads the newest release and puts `Reel.app` in `/Applications`. Run it again any time to update.
+Downloads the newest release and puts `Reel.app` in `/Applications`. After that, Reel checks for updates on
+launch and offers to install them (or use Reel → Check for Updates…).
 Or grab `Reel.zip` from the [Releases](../../releases) page, unzip it, and drag `Reel.app` to Applications.
 
 ## Build from source

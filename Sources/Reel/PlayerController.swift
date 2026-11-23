@@ -405,10 +405,12 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     }
 
     /// On launch: start the first item of the playlist you used last (unless something already started).
+    /// On launch: load the first item of the playlist you used last, paused.
     func autoplayLastPlaylist() {
         guard isIdle else { return }
         let id = panel.shownID
-        if let first = Library.shared.playlist(id)?.tracks.first(where: { $0.isPlayableInSequence }) { play(playlist: id, track: first.id) }
+        // Loaded and ready, but paused until you press play.
+        if let first = Library.shared.playlist(id)?.tracks.first(where: { $0.isPlayableInSequence }) { play(playlist: id, track: first.id, startPaused: true) }
     }
 
     func showWindow() {
@@ -455,14 +457,27 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     }
 
     /// Mirror the traffic lights onto the right edge of the title bar (fades along with them).
+    /// The title-bar view that spans the whole window width. On some Macs the traffic lights sit in a
+    /// smaller group view inside it, so "close.superview" isn't always the full-width bar.
+    private var titlebarHost: NSView? {
+        guard let close = window.standardWindowButton(.closeButton) else { return nil }
+        var v: NSView? = close.superview
+        while let cur = v, cur.frame.width < window.frame.width - 1, let up = cur.superview, up !== window.contentView?.superview { v = up }
+        return v ?? close.superview
+    }
+
+    /// Mirror the close button onto the right edge, measured in whole-window coordinates so it lines
+    /// up however macOS nests the buttons (notch laptops, other OS versions).
     private func placePlaylistDot() {
-        guard let close = window.standardWindowButton(.closeButton), let bar = close.superview else { return }
-        if playlistDot.superview !== bar { bar.addSubview(playlistDot) }
-        let f = close.frame   // same size, same inset from the right edge as close has from the left
-        playlistDot.frame = NSRect(x: bar.bounds.width - f.maxX, y: f.minY, width: f.width, height: f.height)
+        guard let close = window.standardWindowButton(.closeButton), let host = titlebarHost else { return }
+        if playlistDot.superview !== host { host.addSubview(playlistDot) }
+        let c = close.convert(close.bounds, to: nil)          // close button in window coordinates
+        let W = window.frame.width, H = window.frame.height
+        let mirrored = NSRect(x: W - c.maxX, y: c.minY, width: c.width, height: c.height)
+        playlistDot.frame = host.convert(mirrored, from: nil)
         playlistDot.isHidden = isFullscreen
-        panel.titleRowCenterFromTop = bar.bounds.height - f.midY
-        panel.titleRowRightInset = f.maxX + 6
+        panel.titleRowCenterFromTop = H - c.midY
+        panel.titleRowRightInset = c.maxX + 6
         playlistDot.active = window.isKeyWindow
     }
     func windowDidBecomeKey(_ notification: Notification) { playlistDot.active = true }
@@ -657,7 +672,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = visible ? 0.12 : 0.35
             titleOverlay.animator().alphaValue = visible ? 1 : 0
-            window.standardWindowButton(.closeButton)?.superview?.animator().alphaValue = visible ? 1 : 0
+            (titlebarHost ?? window.standardWindowButton(.closeButton)?.superview)?.animator().alphaValue = visible ? 1 : 0
         }
         if !visible && isFullscreen { NSCursor.setHiddenUntilMouseMoves(true) }
     }
@@ -691,7 +706,10 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
     private var loadToken = 0
 
+    private var nextAutoplay = true
+
     private func use(_ next: PlayerBackend) {
+        next.autoplay = nextAutoplay
         if backend !== next {
             backend?.stop()
             backend?.view.removeFromSuperview()
@@ -702,7 +720,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         next.setVolume(muted ? 0 : Loudness.gain(volume))
     }
 
-    func play(playlist pid: UUID, track tid: UUID) {
+    func play(playlist pid: UUID, track tid: UUID, startPaused: Bool = false) {
+        nextAutoplay = !startPaused
         guard let track = Library.shared.playlist(pid)?.tracks.first(where: { $0.id == tid }) else { return }
         failTimer?.cancel()
         current = (pid, tid)
@@ -844,7 +863,9 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         }
     }
 
+    var debugToggleCount = 0
     @objc func togglePlay() {
+        debugToggleCount += 1
         guard let b = backend, current != nil else { nextTrack(); return }
         let willPlay = !b.isPlaying
         willPlay ? b.play() : b.pause()
@@ -1177,7 +1198,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         case #selector(menuPin(_:)): item.state = Prefs.alwaysOnTop ? .on : .off
         case #selector(menuPlaylist(_:)): item.title = panelOpen ? "Hide Playlist" : "Show Playlist"
         case #selector(menuMute(_:)): item.state = muted ? .on : .off
-        case #selector(menuTogglePlay(_:)): item.title = backend?.isPlaying == true ? "Pause" : "Play"
+        case #selector(menuTogglePlay(_:)): item.title = (backend?.isPlaying == true ? "Pause" : "Play") + "    Space"
         default: break
         }
         return true

@@ -11,6 +11,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !pendingOpen.isEmpty { player.open(files: pendingOpen); pendingOpen = [] }
         // REEL_PLAY="<url or path>" adds it to the shown playlist and plays it (handy from a terminal)
         let env = ProcessInfo.processInfo.environment
+        if Bundle.main.bundleURL.pathExtension == "app", !env.keys.contains(where: { $0.hasPrefix("REEL_") }) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                Task { @MainActor in await Updater.check(interactive: false, window: self.player.window) }
+            }
+        }
         if env["REEL_PLAY"] == nil && !env.keys.contains(where: { $0.hasSuffix("_TEST") }) || env["REEL_AUTOPLAY_TEST"] != nil {
             // Give a file opened from Finder/Dock a moment to arrive first; it wins.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.player.autoplayLastPlaylist() }
@@ -254,6 +259,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        if ProcessInfo.processInfo.environment["REEL_ALIGN_TEST"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                let w = self.player.window
+                let close = w.standardWindowButton(.closeButton)!
+                let dot = close.superview!.subviews.first { $0 is PlaylistDot } ?? w.contentView!.superview!.subviews.flatMap { $0.subviews }.flatMap { [$0] + $0.subviews }.first { $0 is PlaylistDot }
+                let c = close.convert(close.bounds, to: nil), d = dot!.convert(dot!.bounds, to: nil)
+                print(String(format: "window %.0f wide · close center (%.1f, %.1f) · dot center (%.1f, %.1f) · left gap %.1f vs right gap %.1f · nesting: close in %@", w.frame.width, c.midX, c.midY, d.midX, d.midY, c.minX, w.frame.width - d.maxX, String(describing: type(of: close.superview!))))
+                fflush(stdout); NSApp.terminate(nil)
+            }
+        }
+        if let mode = ProcessInfo.processInfo.environment["REEL_UPDATE_TEST"] {
+            Task { @MainActor in
+                let cur = Updater.currentVersionString ?? "none"
+                guard let rel = await Updater.latest() else { print("lookup failed"); fflush(stdout); NSApp.terminate(nil); return }
+                print("latest on GitHub: \(rel.tag) via \(rel.zipURL == nil ? "gh (private repo)" : "public API")  this build: \(cur)  newer? \(Updater.isNewer(rel.version, than: Updater.parse(cur)))")
+                print("compare checks:", Updater.isNewer([26,48,3], than: [26,48,2]), Updater.isNewer([26,49,1], than: [26,48,9]), Updater.isNewer([27,1,1], than: [26,52,40]), !Updater.isNewer([26,48,3], than: [26,48,3]))
+                fflush(stdout)
+                if mode == "install" { await Updater.install(rel, window: nil) } else { NSApp.terminate(nil) }
+            }
+        }
+        if ProcessInfo.processInfo.environment["REEL_AUTOPLAY_TEST"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                print(String(format: "3s after launch: playing=%@ t=%.2f", self.player.debugIsPlaying ? "yes" : "no", self.player.debugCurrentTime)); fflush(stdout)
+                NSApp.terminate(nil)
+            }
+        }
+        if ProcessInfo.processInfo.environment["REEL_SPACE_TEST"] != nil {
+            NSApp.activate(ignoringOtherApps: true)
+            self.player.window.makeKeyAndOrderFront(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                let w = self.player.window
+                for (label, setup) in [("video focused", { _ = w.makeFirstResponder(w.contentView) }),
+                                       ("after clicking a playlist button", { self.player.setPanel(open: true); _ = w.makeFirstResponder(self.player.panel.table) })] as [(String, () -> Void)] {
+                    setup()
+                    let before = self.player.debugToggleCount
+                    let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49)!
+                    let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49)!
+                    NSApp.sendEvent(down); NSApp.sendEvent(up)
+                    print("space (\(label), key=\(w.isKeyWindow), first responder \(type(of: w.firstResponder!))): togglePlay ran \(self.player.debugToggleCount - before)x"); fflush(stdout)
+                }
+                NSApp.terminate(nil)
+            }
+        }
         if ProcessInfo.processInfo.environment["REEL_FIT_TEST"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 print("before fit: \(self.player.window.frame) screen \(self.player.window.screen?.visibleFrame ?? .zero)"); fflush(stdout)
@@ -450,6 +498,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showHelp(_ sender: Any?) { HelpWindow.shared.show() }
     @objc func showAbout(_ sender: Any?) { AboutWindow.shared.show() }
+    @objc func checkForUpdates(_ sender: Any?) {
+        Task { @MainActor in await Updater.check(interactive: true, window: self.player.window) }
+    }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
     func applicationWillTerminate(_ n: Notification) { player.saveState() }
@@ -470,6 +521,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menu("Reel", [
             { let i = item("About Reel", #selector(AppDelegate.showAbout(_:))); i.target = self; return i }(),
+            { let i = item("Check for Updates…", #selector(AppDelegate.checkForUpdates(_:))); i.target = self; return i }(),
             .separator(),
             item("Hide Reel", #selector(NSApplication.hide(_:)), "h"),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
@@ -493,11 +545,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
         menu("Playback", [
-            item("Play", #selector(PlayerController.menuTogglePlay(_:)), " ", []),
-            item("Forward 10 Seconds", #selector(PlayerController.menuSkipFwd(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), []),
-            item("Back 10 Seconds", #selector(PlayerController.menuSkipBack(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), []),
-            item("Next Track", #selector(PlayerController.menuNext(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!), []),
-            item("Previous Track", #selector(PlayerController.menuPrev(_:)), String(UnicodeScalar(NSUpArrowFunctionKey)!), []),
+            // Plain keys (Space, arrows) are handled once by the player's key handler; giving these
+            // menu items the same keys made every press fire twice.
+            item("Play / Pause    Space", #selector(PlayerController.menuTogglePlay(_:))),
+            item("Forward 10 Seconds    →", #selector(PlayerController.menuSkipFwd(_:))),
+            item("Back 10 Seconds    ←", #selector(PlayerController.menuSkipBack(_:))),
+            item("Next Track    ↓", #selector(PlayerController.menuNext(_:))),
+            item("Previous Track    ↑", #selector(PlayerController.menuPrev(_:))),
             .separator(),
             item("Loop This Track", #selector(PlayerController.menuLoop(_:)), "l"),
             item("Mute", #selector(PlayerController.menuMute(_:)), "m", [.command, .shift]),

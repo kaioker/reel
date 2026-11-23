@@ -58,7 +58,8 @@ final class HelpWindow: NSObject {
             ("Import", "Drop that .json on Reel (or pick it with +) — it arrives as a new playlist"),
         ]),
         ("On launch", [
-            ("", "Reel starts the first item of the playlist you used last"),
+            ("", "Reel loads the first item of the playlist you used last, paused"),
+            ("", "It checks GitHub for a newer version and offers to update (also: Reel → Check for Updates…)"),
         ]),
     ]
 
