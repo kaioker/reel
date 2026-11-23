@@ -92,27 +92,41 @@ canvas.addPath(bodyPath); canvas.clip()
 let grad = CGGradient(colorsSpace: cs, colors: [rgb(0x9277ea), rgb(0x5140b4), rgb(0x221c58)] as CFArray, locations: [0, 0.5, 1])!
 canvas.drawLinearGradient(grad, start: CGPoint(x: 512, y: 100), end: CGPoint(x: 512, y: 924), options: [])
 let glow = CGGradient(colorsSpace: cs, colors: [rgb(0x37d6c8, 0.30), rgb(0x37d6c8, 0)] as CFArray, locations: [0, 1])!
-canvas.drawRadialGradient(glow, startCenter: CGPoint(x: 512, y: 512), startRadius: 0,
-                          endCenter: CGPoint(x: 512, y: 512), endRadius: 420, options: [])
+canvas.drawRadialGradient(glow, startCenter: CGPoint(x: 573, y: 512), startRadius: 0,
+                          endCenter: CGPoint(x: 573, y: 512), endRadius: 420, options: [])
 // soft lavender light behind the creature's head so its dark outline reads against the background
 let halo = CGGradient(colorsSpace: cs, colors: [rgb(0xc8b8ff, 0.55), rgb(0xa48bff, 0.22), rgb(0xa48bff, 0)] as CFArray, locations: [0, 0.45, 1])!
-canvas.drawRadialGradient(halo, startCenter: CGPoint(x: 580, y: top(800, 0)), startRadius: 0,
-                          endCenter: CGPoint(x: 580, y: top(800, 0)), endRadius: 420, options: [])
+canvas.drawRadialGradient(halo, startCenter: CGPoint(x: 573, y: top(800, 0)), startRadius: 0,
+                          endCenter: CGPoint(x: 573, y: top(800, 0)), endRadius: 420, options: [])
 
 // film edge down the left: a dark strip with rounded square sprocket holes
-let strip = CGRect(x: 100, y: 100, width: 108, height: 824)
+let strip = CGRect(x: 100, y: 100, width: 124, height: 824)
 canvas.setFillColor(rgb(0x0f0c26, 0.62)); canvas.fill(strip)
 canvas.setFillColor(rgb(0xffffff, 0.10)); canvas.fill(CGRect(x: strip.maxX - 3, y: 100, width: 3, height: 824))   // strip edge
-let hole: CGFloat = 46, pitch: CGFloat = 82
+// sprocket holes — punched right through the icon at the very end, so they're truly transparent
+let hole: CGFloat = 60, pitch: CGFloat = 100
+var holes: [CGRect] = []
 var hy: CGFloat = 100 + (824 - (floor(824 / pitch) * pitch - (pitch - hole))) / 2
 while hy + hole <= 924 {
-    canvas.addPath(CGPath(roundedRect: CGRect(x: strip.midX - hole / 2 - 4, y: hy, width: hole, height: hole), cornerWidth: 11, cornerHeight: 11, transform: nil))
-    canvas.setFillColor(rgb(0xe9e1ff, 0.82)); canvas.fillPath()
+    holes.append(CGRect(x: strip.midX - hole / 2 - 4, y: hy, width: hole, height: hole))
     hy += pitch
 }
+// only holes that sit fully inside the icon's rounded edge (no notches at the corners)
+holes = holes.filter { h in
+    let m = h.insetBy(dx: -10, dy: -10)
+    return [CGPoint(x: m.minX, y: m.minY), CGPoint(x: m.minX, y: m.maxY), CGPoint(x: m.maxX, y: m.minY), CGPoint(x: m.maxX, y: m.maxY)]
+        .allSatisfy { bodyPath.contains($0) }
+}
+// …and centre that column of holes vertically
+if let lo = holes.map(\.minY).min(), let hi = holes.map(\.maxY).max() {
+    let dy = 512 - (lo + hi) / 2
+    holes = holes.map { $0.offsetBy(dx: 0, dy: dy) }
+}
+// the picture area is everything right of the film edge; centre things in that
+let frameMidX = (strip.maxX + 924) / 2
 
 // big play button behind the creature
-let pc = CGPoint(x: 512, y: 512)   // dead centre of the icon; the creature covers its lower part
+let pc = CGPoint(x: frameMidX, y: 512)   // centre of the picture area; the creature covers its lower part
 let pr: CGFloat = 228
 canvas.saveGState()
 canvas.setShadow(offset: CGSize(width: 0, height: -8), blur: 30, color: rgb(0x150f40, 0.45))
@@ -137,7 +151,7 @@ canvas.restoreGState()
 let cw = CGFloat(creature.width), ch = CGFloat(creature.height)
 let scale: CGFloat = 760 / cw
 let dw = cw * scale, dh = ch * scale
-let dest = CGRect(x: 580 - dw / 2, y: 100, width: dw, height: dh)     // its cut-off bottom sits on the icon's bottom edge
+let dest = CGRect(x: frameMidX - dw / 2, y: 100, width: dw, height: dh)     // its cut-off bottom sits on the icon's bottom edge
 canvas.saveGState()
 canvas.setShadow(offset: CGSize(width: 0, height: 8), blur: 26, color: rgb(0x000000, 0.55))
 canvas.interpolationQuality = .high
@@ -152,6 +166,18 @@ canvas.restoreGState()
 // thin edge highlight
 canvas.addPath(CGPath(roundedRect: body.insetBy(dx: 1, dy: 1), cornerWidth: 184, cornerHeight: 184, transform: nil))
 canvas.setStrokeColor(rgb(0xffffff, 0.18)); canvas.setLineWidth(2); canvas.strokePath()
+
+// punch the sprocket holes (transparent all the way through)
+canvas.saveGState()
+canvas.setBlendMode(.clear)
+for h in holes { canvas.addPath(CGPath(roundedRect: h, cornerWidth: 14, cornerHeight: 14, transform: nil)) }
+canvas.fillPath()
+canvas.restoreGState()
+// faint inner rim so the holes read on light and dark backgrounds
+for h in holes {
+    canvas.addPath(CGPath(roundedRect: h.insetBy(dx: -1, dy: -1), cornerWidth: 15, cornerHeight: 15, transform: nil))
+}
+canvas.setStrokeColor(rgb(0xffffff, 0.22)); canvas.setLineWidth(2); canvas.strokePath()
 
 let icon = canvas.makeImage()!
 let rep = NSBitmapImageRep(cgImage: icon)
