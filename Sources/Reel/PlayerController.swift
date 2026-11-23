@@ -17,6 +17,9 @@ final class InteractionView: NSView, RightClickHandling {
     enum ScrollAxis { case none, horizontal, vertical }
 
     var onClick: (() -> Void)?
+    /// Height of the title strip at the top (where the window buttons and title sit). A click there only
+    /// brings Reel forward — it never plays/pauses.
+    var titleStripHeight: CGFloat = 32
     var onDoubleClick: (() -> Void)?
     var onDrop: ((NSPasteboard) -> Bool)?
     var onContextMenu: ((NSEvent) -> Void)?
@@ -70,7 +73,7 @@ final class InteractionView: NSView, RightClickHandling {
 
     override func mouseUp(with e: NSEvent) {
         if gesture == .adjustPending || gesture == .scrub || gesture == .volume { rightMouseUp(with: e); return }
-        if gesture == .pending, e.clickCount == 1 { onClick?() }
+        if gesture == .pending, e.clickCount == 1, convert(e.locationInWindow, from: nil).y < bounds.height - titleStripHeight { onClick?() }
         gesture = .none
         downEvent = nil
     }
@@ -519,6 +522,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         playlistDot.frame = host.convert(mirrored, from: nil)
         playlistDot.isHidden = isFullscreen
         panel.titleRowCenterFromTop = H - c.midY
+        interaction.titleStripHeight = max(28, (H - c.midY) * 2)
         panel.titleRowRightInset = c.maxX + 6
         playlistDot.active = window.isKeyWindow
     }

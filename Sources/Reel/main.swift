@@ -410,6 +410,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSApp.terminate(nil)
             }
         }
+        if ProcessInfo.processInfo.environment["REEL_TITLECLICK_TEST"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                let w = self.player.window, v = self.player.debugInteraction
+                func click(_ y: CGFloat) {
+                    let p = v.convert(NSPoint(x: v.bounds.midX, y: y), to: nil)
+                    for t in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                        w.sendEvent(NSEvent.mouseEvent(with: t, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+                    }
+                }
+                let a = self.player.debugIsPlaying
+                click(v.bounds.height - 12)                      // in the title strip
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    let b = self.player.debugIsPlaying
+                    click(v.bounds.midY)                         // middle of the video
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        print("title-strip click (strip \(Int(v.titleStripHeight)) pt, focused=\(w.isKeyWindow)): playing \(a) → \(b)")
+                        print("video click: playing \(b) → \(self.player.debugIsPlaying)"); fflush(stdout); NSApp.terminate(nil)
+                    }
+                }
+            }
+        }
         if ProcessInfo.processInfo.environment["REEL_AUTOPLAY_TEST"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                 print(String(format: "3s after launch: playing=%@ t=%.2f", self.player.debugIsPlaying ? "yes" : "no", self.player.debugCurrentTime)); fflush(stdout)
