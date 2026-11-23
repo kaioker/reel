@@ -118,6 +118,14 @@ let frameMidX = (strip.maxX + 924) / 2
 
 // big play button behind the creature
 let pc = CGPoint(x: frameMidX, y: 512)   // centre of the picture area; the creature covers its lower part
+// soft disc behind it — present but quiet
+let pr: CGFloat = 228
+canvas.saveGState()
+canvas.setShadow(offset: CGSize(width: 0, height: -6), blur: 26, color: rgb(0x150f40, 0.25))
+canvas.setFillColor(rgb(0xffffff, 0.075)); canvas.fillEllipse(in: CGRect(x: pc.x - pr, y: pc.y - pr, width: pr * 2, height: pr * 2))
+canvas.restoreGState()
+canvas.setStrokeColor(rgb(0xffffff, 0.13)); canvas.setLineWidth(3)
+canvas.strokeEllipse(in: CGRect(x: pc.x - pr + 1.5, y: pc.y - pr + 1.5, width: pr * 2 - 3, height: pr * 2 - 3))
 // rounded triangle: fill + a thick round-joined stroke of the same colour softens the corners
 let tri = CGMutablePath()
 let th: CGFloat = 112   // half height
