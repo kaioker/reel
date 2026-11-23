@@ -89,7 +89,7 @@ canvas.saveGState()
 canvas.addPath(bodyPath); canvas.clip()
 // background: indigo → violet (the flower crown's colours), with a teal glow from the eyes' colour
 // (start = bottom edge): light violet behind the creature, deep indigo up top
-let grad = CGGradient(colorsSpace: cs, colors: [rgb(0x9277ea), rgb(0x5140b4), rgb(0x221c58)] as CFArray, locations: [0, 0.5, 1])!
+let grad = CGGradient(colorsSpace: cs, colors: [rgb(0xb299ff), rgb(0x5a44c4), rgb(0x150f3d)] as CFArray, locations: [0, 0.48, 1])!
 canvas.drawLinearGradient(grad, start: CGPoint(x: 512, y: 100), end: CGPoint(x: 512, y: 924), options: [])
 let glow = CGGradient(colorsSpace: cs, colors: [rgb(0x37d6c8, 0.30), rgb(0x37d6c8, 0)] as CFArray, locations: [0, 1])!
 canvas.drawRadialGradient(glow, startCenter: CGPoint(x: 573, y: 512), startRadius: 0,
@@ -105,22 +105,13 @@ canvas.setFillColor(rgb(0x0f0c26, 0.62)); canvas.fill(strip)
 canvas.setFillColor(rgb(0xffffff, 0.10)); canvas.fill(CGRect(x: strip.maxX - 3, y: 100, width: 3, height: 824))   // strip edge
 // sprocket holes — punched right through the icon at the very end, so they're truly transparent
 let hole: CGFloat = 60, pitch: CGFloat = 100
+// full height, evenly spaced and symmetric about the middle; the ones at the very top and bottom
+// run off the rounded corners like film leaving the frame
 var holes: [CGRect] = []
-var hy: CGFloat = 100 + (824 - (floor(824 / pitch) * pitch - (pitch - hole))) / 2
-while hy + hole <= 924 {
-    holes.append(CGRect(x: strip.midX - hole / 2 - 4, y: hy, width: hole, height: hole))
-    hy += pitch
-}
-// only holes that sit fully inside the icon's rounded edge (no notches at the corners)
-holes = holes.filter { h in
-    let m = h.insetBy(dx: -10, dy: -10)
-    return [CGPoint(x: m.minX, y: m.minY), CGPoint(x: m.minX, y: m.maxY), CGPoint(x: m.maxX, y: m.minY), CGPoint(x: m.maxX, y: m.maxY)]
-        .allSatisfy { bodyPath.contains($0) }
-}
-// …and centre that column of holes vertically
-if let lo = holes.map(\.minY).min(), let hi = holes.map(\.maxY).max() {
-    let dy = 512 - (lo + hi) / 2
-    holes = holes.map { $0.offsetBy(dx: 0, dy: dy) }
+let count = Int(ceil(824 / pitch)) + 1
+let first = 512 - (CGFloat(count - 1) * pitch + hole) / 2
+for k in 0..<count {
+    holes.append(CGRect(x: strip.midX - hole / 2 - 4, y: first + CGFloat(k) * pitch, width: hole, height: hole))
 }
 // the picture area is everything right of the film edge; centre things in that
 let frameMidX = (strip.maxX + 924) / 2
@@ -174,10 +165,13 @@ for h in holes { canvas.addPath(CGPath(roundedRect: h, cornerWidth: 14, cornerHe
 canvas.fillPath()
 canvas.restoreGState()
 // faint inner rim so the holes read on light and dark backgrounds
+canvas.saveGState()
+canvas.addPath(bodyPath); canvas.clip()            // rims only where there's icon
 for h in holes {
     canvas.addPath(CGPath(roundedRect: h.insetBy(dx: -1, dy: -1), cornerWidth: 15, cornerHeight: 15, transform: nil))
 }
 canvas.setStrokeColor(rgb(0xffffff, 0.22)); canvas.setLineWidth(2); canvas.strokePath()
+canvas.restoreGState()
 
 let icon = canvas.makeImage()!
 let rep = NSBitmapImageRep(cgImage: icon)
