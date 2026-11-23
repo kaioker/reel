@@ -167,6 +167,28 @@ canvas.setStrokeColor(rgb(0xffffff)); canvas.setLineWidth(30); canvas.setLineJoi
 canvas.endTransparencyLayer()
 canvas.restoreGState()
 
+// --- glass over the whole icon — drawn *before* the creature, so it never covers it ---
+// curved highlight across the top, like light on a sheet of glass
+canvas.saveGState()
+canvas.addPath(CGPath(ellipseIn: CGRect(x: 30, y: 600, width: 964, height: 520), transform: nil)); canvas.clip()
+let topSheen = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.17), rgb(0xffffff, 0.04), rgb(0xffffff, 0)] as CFArray, locations: [0, 0.5, 1])!
+canvas.drawLinearGradient(topSheen, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 600), options: [])
+canvas.restoreGState()
+// light pooling along the bottom inside edge (refraction), in the gradient's pink
+let pool = CGGradient(colorsSpace: cs, colors: [rgb(0xffd6f6, 0.20), rgb(0xffd6f6, 0)] as CFArray, locations: [0, 1])!
+canvas.drawLinearGradient(pool, start: CGPoint(x: 512, y: 100), end: CGPoint(x: 512, y: 230), options: [])
+// glass edge: a soft inner band plus a crisp line, bright along the top, fading down the sides, gone at the bottom
+func edge(inset: CGFloat, width: CGFloat, alphas: [CGFloat]) {
+    canvas.saveGState()
+    canvas.addPath(CGPath(roundedRect: body.insetBy(dx: inset, dy: inset), cornerWidth: 185 - inset, cornerHeight: 185 - inset, transform: nil))
+    canvas.setLineWidth(width); canvas.replacePathWithStrokedPath(); canvas.clip()
+    let g = CGGradient(colorsSpace: cs, colors: alphas.map { rgb(0xffffff, $0) } as CFArray, locations: [0, 0.45, 1])!
+    canvas.drawLinearGradient(g, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 100), options: [])
+    canvas.restoreGState()
+}
+edge(inset: 7, width: 12, alphas: [0.12, 0.04, 0.0])
+edge(inset: 1.5, width: 2.5, alphas: [0.46, 0.14, 0.0])
+
 // the creature, peeking up from the bottom edge in front of the play button
 let cw = CGFloat(creature.width), ch = CGFloat(creature.height)
 let scale: CGFloat = 760 / cw
@@ -177,15 +199,7 @@ canvas.setShadow(offset: CGSize(width: 0, height: 8), blur: 26, color: rgb(0x000
 canvas.interpolationQuality = .high
 canvas.draw(creature, in: dest)
 canvas.restoreGState()
-
-// glassy top sheen
-let sheen = CGGradient(colorsSpace: cs, colors: [rgb(0xffffff, 0.16), rgb(0xffffff, 0)] as CFArray, locations: [0, 1])!
-canvas.drawLinearGradient(sheen, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 640), options: [])
-canvas.restoreGState()
-
-// thin edge highlight
-canvas.addPath(CGPath(roundedRect: body.insetBy(dx: 1, dy: 1), cornerWidth: 184, cornerHeight: 184, transform: nil))
-canvas.setStrokeColor(rgb(0xffffff, 0.18)); canvas.setLineWidth(2); canvas.strokePath()
+canvas.restoreGState()   // end of the icon-shape clip
 
 // punch the sprocket holes (transparent all the way through)
 canvas.saveGState()
