@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         buildMenu()
         Updater.willRelaunch = { [weak self] in self?.player.saveResumePoint() }
+        showWelcomeIfFreshInstall()
         player = PlayerController()
         player.showWindow()
         if !pendingOpen.isEmpty { player.open(files: pendingOpen); pendingOpen = [] }
@@ -403,6 +404,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        if ProcessInfo.processInfo.environment["REEL_FIRSTRUN_TEST"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                print("help window visible: \(NSApp.windows.contains { $0.title == "Reel Help" && $0.isVisible })"); fflush(stdout)
+                NSApp.terminate(nil)
+            }
+        }
         if ProcessInfo.processInfo.environment["REEL_AUTOPLAY_TEST"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                 print(String(format: "3s after launch: playing=%@ t=%.2f", self.player.debugIsPlaying ? "yes" : "no", self.player.debugCurrentTime)); fflush(stdout)
@@ -621,6 +628,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func showHelp(_ sender: Any?) { HelpWindow.shared.show() }
+
+    /// Fresh install → open Reel Help once on first launch. Existing users (they already have a saved
+    /// library or window position) never see it, even right after updating to this version.
+    private func showWelcomeIfFreshInstall() {
+        let d = UserDefaults.standard
+        let env = ProcessInfo.processInfo.environment
+        let fresh = !d.bool(forKey: "seenWelcome") && !Library.shared.existedAtLaunch && d.object(forKey: "videoFrame") == nil
+        let testing = env.keys.contains { $0.hasPrefix("REEL_") } && env["REEL_FIRSTRUN_TEST"] == nil
+        guard !testing else { return }
+        d.set(true, forKey: "seenWelcome")
+        guard fresh else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            HelpWindow.shared.show()
+            if env["REEL_FIRSTRUN_TEST"] != nil { print("welcome: Help shown"); fflush(stdout) }
+        }
+    }
     @objc func showAbout(_ sender: Any?) { AboutWindow.shared.show() }
     @objc func checkForUpdates(_ sender: Any?) {
         Task { @MainActor in await Updater.check(interactive: true, window: self.player.window) }

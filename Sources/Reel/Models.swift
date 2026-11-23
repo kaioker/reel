@@ -113,6 +113,8 @@ final class Library {
     static let changed = Notification.Name("ReelLibraryChanged")
 
     private(set) var playlists: [Playlist] = []
+    /// Whether a saved library was already on disk when Reel started (i.e. not a fresh install).
+    private(set) var existedAtLaunch = false
     private var saveWork: DispatchWorkItem?
 
     private var fileURL: URL {
@@ -124,6 +126,7 @@ final class Library {
     }
 
     private init() {
+        existedAtLaunch = FileManager.default.fileExists(atPath: fileURL.path)
         if let data = try? Data(contentsOf: fileURL),
            let lists = try? JSONDecoder().decode([Playlist].self, from: data), !lists.isEmpty {
             playlists = lists
