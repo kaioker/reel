@@ -24,11 +24,13 @@ ctx0.draw(srcCG, in: CGRect(x: 0, y: 0, width: W, height: H))
 let bg = (r: Int(px[0]), g: Int(px[1]), b: Int(px[2]))
 func isBG(_ i: Int) -> Bool {
     let r = Int(px[i * 4]), g = Int(px[i * 4 + 1]), b = Int(px[i * 4 + 2])
-    return abs(r - bg.r) <= 7 && abs(g - bg.g) <= 7 && abs(b - bg.b) <= 7 && abs(r - g) <= 5 && abs(g - b) <= 5
+    return abs(r - bg.r) <= 5 && abs(g - bg.g) <= 5 && abs(b - bg.b) <= 5 && abs(r - g) <= 4 && abs(g - b) <= 4
 }
 var mask = [UInt8](repeating: 0, count: W * H)          // 1 = background
 var stack: [Int] = []
-for x in 0..<W { stack.append(x); stack.append((H - 1) * W + x) }
+// seed from the top, left and right edges only — the bottom edge is where the creature is cropped,
+// and its cheek fur there is nearly the background's gray, so seeding there ate into the cheeks
+for x in 0..<W { stack.append(x) }
 for y in 0..<H { stack.append(y * W); stack.append(y * W + W - 1) }
 while let i = stack.popLast() {
     if mask[i] == 1 || !isBG(i) { continue }
@@ -66,6 +68,12 @@ let creatureFull = cutCtx.makeImage()!
 // CG memory row 0 is the *top* of the image here, so the bbox y is top-down.
 let creature = creatureFull.cropping(to: CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1))!
 print("creature bbox:", minX, minY, maxX, maxY)
+if let dbg = ProcessInfo.processInfo.environment["ICON_DEBUG_CUTOUT"] {      // the cut-out over bright green
+    let c = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: 0, space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    c.setFillColor(CGColor(srgbRed: 0, green: 1, blue: 0.2, alpha: 1)); c.fill(CGRect(x: 0, y: 0, width: W, height: H))
+    c.draw(creatureFull, in: CGRect(x: 0, y: 0, width: W, height: H))
+    try! NSBitmapImageRep(cgImage: c.makeImage()!).representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: dbg))
+}
 
 // MARK: Compose (1024 × 1024, macOS icon grid: 824 body at 100 px inset)
 
