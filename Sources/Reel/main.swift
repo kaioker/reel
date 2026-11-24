@@ -733,6 +733,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             HelpWindow.shared.show()
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { NSApp.terminate(nil) }
         }
+        // REEL_SHOT="[panel][,<width>]" for README screenshots: opens the playlist, then resizes to that width
+        if let shot = ProcessInfo.processInfo.environment["REEL_SHOT"] {
+            let parts = shot.split(separator: ",")
+            if parts.contains("panel") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { self.player.setPanel(open: true) }
+            }
+            if let width = parts.compactMap({ Double($0) }).first {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    let w = self.player.window
+                    let sz = self.player.windowWillResize(w, to: NSSize(width: width, height: width))   // the real resize rule keeps the shape
+                    w.setFrame(NSRect(origin: .zero, size: sz), display: true); w.center()
+                }
+            }
+        }
         if ProcessInfo.processInfo.environment["REEL_PANEL_TEST"] == "resize" {
             let w = player.window
             func log(_ s: String) { print(s, w.frame); fflush(stdout) }

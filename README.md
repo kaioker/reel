@@ -1,57 +1,127 @@
+<div align="center">
+
+<img src="docs/icon-256.png" width="128" height="128" alt="Reel icon">
+
 # Reel
 
-A tiny, QuickTime-style video player for macOS that stays on top — with playlists, per-track loop, and Liquid Glass.
+**A tiny, always-on-top video player for macOS.**<br>
+Playlists, YouTube, transparent video and Liquid Glass, in a window that gets out of your way.
 
-- The video fills the whole window (no title bar); controls appear only while the mouse moves
-- Shrinks far smaller than most players and keeps the video's shape; park it in a screen corner and it stays there
-- Always on top by default (⌘T), so it doesn't slide behind other apps
-- Collapsible playlist beside the video, multiple playlists, export/import as `.reel` files (double-click to open)
-- Plays video & audio files, direct links, HLS, YouTube videos and playlists, Bilibili, and WebM
-  (transparent WebM and formats macOS can't decode play right away through FFmpeg built into the app — nothing to install)
+[![Latest release](https://img.shields.io/github/v/release/kaioker/reel?label=latest&color=8a4fd8)](https://github.com/kaioker/reel/releases/latest)
+![macOS 13+](https://img.shields.io/badge/macOS-13%2B-555)
+![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-555)
+[![Downloads](https://img.shields.io/github/downloads/kaioker/reel/total?color=d9366b)](https://github.com/kaioker/reel/releases)
+
+### [⬇&nbsp; Download Reel for Mac](https://github.com/kaioker/reel/releases/latest/download/Reel.zip)
+
+<sub>Free · ~10 MB · nothing else to install · updates itself</sub>
+
+<br>
+
+<img src="docs/screenshot-playlist.png" alt="Reel playing a video with its playlist open" width="900">
+
+</div>
+
+## Why Reel
+
+Most players want to be the main window. Reel is built to sit in a corner while you do something else.
+
+- **All video, no chrome.** The picture fills the whole window, title bar included. Controls appear only while the mouse moves.
+- **Shrinks small, stays put.** Resize it far smaller than most players. It keeps the video's shape, and parked in a screen corner it stays there when the next video is a different shape.
+- **Always on top** by default (⌘T to turn off), so it never slides behind your other apps.
+- **Hotkeys while hovering.** Optionally, Reel's keys work with the mouse over it even while you're typing in another app.
+- **Picks up where you left off.** Reopen Reel and it's on the same track at the same spot, paused.
+
+<div align="center">
+<img src="docs/screenshot-player.png" alt="Reel as a small floating window" width="420">
+</div>
+
+## Plays almost anything
+
+| Source | Notes |
+|---|---|
+| **Files** | Video and audio files, whole folders. Audio-only tracks show a waveform. |
+| **Links** | Direct video links and HLS streams |
+| **YouTube** | Videos and whole playlists (Reel asks whether to import one video, all of them, or a new playlist) |
+| **Bilibili** | Videos |
+| **WebM, including transparent** | See-through video floats over your desktop, with glass behind it only while the playlist or window buttons show |
+| **Unusual formats** | Anything macOS can't decode plays through Reel's built-in FFmpeg decoder. No conversion and no extra installs. |
+
+Drop files, folders or links onto the video or the playlist, paste links with ⌘V, or choose files with ⌘O.
+
+## Playlists
+
+- A collapsible playlist slides out beside the video (⌘P, or the blue dot next to the window buttons)
+- As many playlists as you like; switch with ⇧↑ / ⇧↓
+- Per-track loop, play next, rename, and **skip**: struck-through tracks stay in the list, but playback passes over them
+- Plays round to the top at the end
+- **Share playlists as `.reel` files.** Export one, send it to a friend, and they double-click it to open it in Reel.
+
+## Controls
+
+| Input | Action |
+|---|---|
+| Click the video | Play / pause (works even when Reel isn't the active app) |
+| Double-click | Full screen |
+| Space | Play / pause |
+| ← → | Back / forward 10 seconds |
+| ↑ ↓ or ⇧← ⇧→ | Previous / next track |
+| ⇧↑ ⇧↓ | Previous / next playlist |
+| L · M · F | Loop track · mute · full screen |
+| Right-drag ← → / ↑ ↓ | Seek / volume (or two-finger swipe; mouse wheel is volume) |
+| Right-click | Quick menu: play, loop, on top, playlist, add, paste, full screen |
+| ⌘P · ⌘T · ⌘0 | Playlist · always on top · actual size |
+| Headset, AirPods, ⏯ ⏭ ⏮ keys | Play / pause, next and previous track; Reel shows in Control Center's Now Playing |
+
+The full list is in **Help → Reel Help** (⌘?).
 
 ## Install
 
-Needs the GitHub CLI (`brew install gh`, then `gh auth login`):
+1. [Download Reel.zip](https://github.com/kaioker/reel/releases/latest/download/Reel.zip) and open it.
+2. Drag **Reel** into your **Applications** folder.
+3. Open Reel. Reel isn't from the App Store, so the first time macOS asks whether to trust it.
+   Go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to Reel.
+   You only need to do this once.
+
+Or install from Terminal:
 
 ```sh
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/kaioker/reel/main/install.sh | zsh
 ```
 
-Downloads the newest release and puts `Reel.app` in `/Applications`. After that, Reel checks for updates on
-launch and offers to install them (or use Reel → Check for Updates…).
-Or grab `Reel.zip` from the [Releases](../../releases) page, unzip it, and drag `Reel.app` to Applications.
+**Requirements:** a Mac with Apple Silicon (M1 or later) running macOS 13 Ventura or later.
+Liquid Glass styling appears on macOS 26 Tahoe; earlier versions get a frosted look instead.
 
-## Build from source
+### Updates
 
-Requires macOS 13+, the Swift toolchain (Xcode or the Command Line Tools), and `brew install libvpx`
-(linked into the bundled FFmpeg). The first `./build.sh` downloads FFmpeg's source and builds its decoding libraries and a small
-`ffmpeg` once (cached in `.deps/`). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Reel checks for a new version each time it starts and offers to install it. It updates in place and comes
+back on the same track and spot. You can also check any time with **Reel → Check for Updates…**
+
+## Privacy
+
+Reel has no accounts, ads or analytics. It talks to the internet only to play the links you give it and to check
+GitHub for updates.
+
+<details>
+<summary><b>Build from source</b></summary>
+
+<br>
+
+Needs the Swift toolchain (Xcode or the Command Line Tools) and `brew install libvpx`.
+The first build downloads FFmpeg's source and builds its decoders once (cached in `.deps/`).
 
 ```sh
 ./build.sh            # builds Reel.app here
 ./build.sh --install  # …and copies it to /Applications
-./release.sh          # builds and publishes a new GitHub release (commit changes first)
+./release.sh          # builds and publishes a new GitHub release
 ```
 
-## Versions
+Versions are numbered `vYY.WW.NN`: year, week of the year, then the build number that week. For example,
+`v26.51.12` is the twelfth build in week 51 of 2026.
 
-`vYY.WW.NN` — ISO year, ISO week of the year, and the build number that week.
-`NN` goes up on every build, no matter how small, and starts again at `01` each week (e.g. `v26.51.12`).
+</details>
 
-## Controls
+## Acknowledgements
 
-| | |
-|---|---|
-| Click video | Play / pause (works even when Reel isn't focused) |
-| Drag video | Move the window |
-| Right-drag ← → / ↑ ↓ | Seek / volume (two-finger swipe or mouse wheel too) |
-| Right-click | Icon menu |
-| Space · ← → · ↑ ↓ | Play/pause · skip 10 s · previous/next track |
-| ⇧← ⇧→ · ⇧↑ ⇧↓ | Previous/next track · previous/next playlist |
-| L · M · F | Loop track · mute · full screen |
-| ⌘P or the blue circle | Show / hide the playlist |
-| ⌘V | Add every link on the clipboard |
-| ⌘T · ⌘0 | Always on top · actual size |
-
-In the playlist: click a track to play, double-click a title to rename, right-click for play next / skip / more.
-Help → Reel Help (⌘?) has the full list.
+Reel uses [FFmpeg](https://ffmpeg.org) (LGPL) and [libvpx](https://chromium.googlesource.com/webm/libvpx) (BSD)
+for formats macOS can't play itself. Details and source links are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
