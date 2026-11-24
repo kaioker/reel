@@ -60,8 +60,8 @@ final class HelpWindow: NSObject {
             ("Audio only", "Shows the waveform"),
         ]),
         ("Sharing playlists", [
-            ("Export button", "Saves the shown playlist as a small .json (name, link, loop, skip per track)"),
-            ("Import", "Drop that .json on Reel (or pick it with +) — it arrives as a new playlist"),
+            ("Export button", "Saves the shown playlist as a .reel file (name, link, loop, skip per track)"),
+            ("Import", "Double-click a .reel file, drop it on Reel, or pick it with + — it arrives as a new playlist"),
         ]),
         ("On launch", [
             ("", "Reel loads the first item of the playlist you used last, paused"),

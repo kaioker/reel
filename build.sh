@@ -30,6 +30,7 @@ done
 install_name_tool -delete_rpath "$PWD/.deps/ffmpeg-shared/lib" "$APP/Contents/MacOS/Reel" 2>/dev/null || true
 for lib in "$APP/Contents/Frameworks/"*.dylib; do codesign --force --sign - "$lib" >/dev/null 2>&1 || true; done
 [ -f AppIcon.icns ] && cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp Design/ReelPlaylist.icns "$APP/Contents/Resources/ReelPlaylist.icns" 2>/dev/null || true   # .reel file icon
 cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/" 2>/dev/null || true
 
 # Bundled ffmpeg (transparent WebM + converting videos macOS can't decode) — so nothing needs installing.
@@ -66,6 +67,25 @@ cat > "$APP/Contents/Info.plist" <<PLIST
       <key>LSItemContentTypes</key><array>
         <string>public.movie</string><string>public.audio</string><string>public.audiovisual-content</string><string>public.folder</string>
       </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Reel Playlist</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>LSItemContentTypes</key><array><string>app.reel.reel-playlist</string></array>
+      <key>CFBundleTypeIconFile</key><string>ReelPlaylist</string>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key><array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>app.reel.reel-playlist</string>
+      <key>UTTypeDescription</key><string>Reel Playlist</string>
+      <key>UTTypeConformsTo</key><array><string>public.json</string><string>public.data</string></array>
+      <key>UTTypeIconFile</key><string>ReelPlaylist</string>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>reel</string></array>
+        <key>public.mime-type</key><array><string>application/x-reel-playlist</string></array>
+      </dict>
     </dict>
   </array>
 </dict></plist>

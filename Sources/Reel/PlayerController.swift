@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 private let minPanelW: CGFloat = 220
 private let maxPanelW: CGFloat = 600
@@ -1341,7 +1342,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         let p = NSOpenPanel()
         p.allowsMultipleSelection = true
         p.canChooseDirectories = true
-        p.allowedContentTypes = [.audiovisualContent, .folder, .json]
+        p.allowedContentTypes = [.audiovisualContent, .folder, .reelPlaylist, .json]
         p.beginSheetModal(for: window) { r in
             if r == .OK { self.panel.add(files: p.urls, at: nil, playFirst: true) }
         }
