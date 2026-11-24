@@ -4,6 +4,7 @@ import VideoToolbox
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var player: PlayerController!
     var hoverHotkeys: HoverHotkeys?
+    var hoverMenuItem: NSMenuItem?
     private var pendingOpen: [URL] = []
 
     func applicationDidFinishLaunching(_ n: Notification) {
@@ -13,8 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         player = PlayerController()
         player.showWindow()
         // Hotkeys while the mouse is over Reel, even when another app is active (needs Accessibility).
-        if !ProcessInfo.processInfo.environment.keys.contains(where: { $0.hasPrefix("REEL_") }) || ProcessInfo.processInfo.environment["REEL_HOVER_INSTALL_TEST"] != nil {
-            hoverHotkeys = HoverHotkeys(player: player)
+        hoverHotkeys = HoverHotkeys(player: player)
+        let testingLaunch = ProcessInfo.processInfo.environment.keys.contains(where: { $0.hasPrefix("REEL_") })
+        if Prefs.hoverHotkeys && (!testingLaunch || ProcessInfo.processInfo.environment["REEL_HOVER_INSTALL_TEST"] != nil) {
             hoverHotkeys?.start()
         }
         if !pendingOpen.isEmpty { player.open(files: pendingOpen); pendingOpen = [] }
@@ -463,6 +465,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 print("hover hook installed:", self.hoverHotkeys?.isActive == true ? "yes" : "no"); fflush(stdout); NSApp.terminate(nil)
             }
         }
+        if ProcessInfo.processInfo.environment["REEL_OPTIN_TEST"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                print("default setting: \(Prefs.hoverHotkeys ? "on" : "off") · hook installed: \(self.hoverHotkeys?.isActive == true)")
+                self.toggleHoverHotkeys(nil)
+                print("after turning on: setting \(Prefs.hoverHotkeys ? "on" : "off") · hook installed: \(self.hoverHotkeys?.isActive == true) · menu ✓: \(self.hoverMenuItem?.state == .on)")
+                self.toggleHoverHotkeys(nil)
+                print("after turning off: setting \(Prefs.hoverHotkeys ? "on" : "off") · hook installed: \(self.hoverHotkeys?.isActive == true) · menu ✓: \(self.hoverMenuItem?.state == .on)")
+                let l = CGEvent(keyboardEventSource: nil, virtualKey: 37, keyDown: true)!
+                print("L key reads as: \"\(NSEvent(cgEvent: l)?.charactersIgnoringModifiers ?? "nil")\"")
+                // right-click while Reel is in the background, through the app object like a real click
+                NSApp.deactivate()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+                let w = self.player.window, v = self.player.debugInteraction
+                let p = v.convert(NSPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)
+                print("Reel active: \(NSApp.isActive) · app object: \(type(of: NSApp!))")
+                for t in [NSEvent.EventType.rightMouseDown, .rightMouseUp] {
+                    NSApp.sendEvent(NSEvent.mouseEvent(with: t, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+                }
+                print("first right-click in the background → icon menu open: \(IconMenu.shared.isShowing) · Reel became active: \(NSApp.isActive)")
+                Prefs.hoverHotkeys = false; fflush(stdout); NSApp.terminate(nil)
+            }
+        }
         if ProcessInfo.processInfo.environment["REEL_HOVER_TEST"] != nil {
             typealias F = CGEventFlags
             let cases: [(String, UInt16, F, Bool, Bool, Bool)] = [
@@ -718,29 +742,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     @objc func showAbout(_ sender: Any?) { AboutWindow.shared.show() }
-
-    /// Explains hover hotkeys and opens Privacy & Security → Accessibility if they aren't allowed yet.
-    @objc func hoverHotkeysSettings(_ sender: Any?) {
-        let a = NSAlert()
-        if HoverHotkeys.isTrusted {
-            a.messageText = "Hover hotkeys are on"
-            a.informativeText = "With the mouse over Reel, its hotkeys (Space, arrows, ⇧-arrows, L, M, F) work even while another app is active."
-            a.addButton(withTitle: "OK")
-            a.beginSheetModal(for: player.window)
-        } else {
-            a.messageText = "Allow hover hotkeys?"
-            a.informativeText = "To use Reel's hotkeys while the mouse is over it and another app is active, turn Reel on in System Settings → Privacy & Security → Accessibility. Reel only acts on its own hotkeys, and only while the mouse is over its window."
-            a.addButton(withTitle: "Open Settings"); a.addButton(withTitle: "Not Now")
-            a.beginSheetModal(for: player.window) { r in
-                guard r == .alertFirstButtonReturn else { return }
-                self.hoverHotkeys?.askForPermission()
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-                self.hoverHotkeys?.start()
-            }
-        }
-    }
     @objc func checkForUpdates(_ sender: Any?) {
         Task { @MainActor in await Updater.check(interactive: true, window: self.player.window) }
+    }
+
+    /// Reel → Hotkeys While Hovering: off by default. Turning it on asks for the Accessibility permission
+    /// if needed (and starts as soon as it's granted); turning it off removes the key hook entirely.
+    @objc func toggleHoverHotkeys(_ sender: Any?) {
+        let on = !Prefs.hoverHotkeys
+        Prefs.hoverHotkeys = on
+        hoverMenuItem?.state = on ? .on : .off
+        guard on else {
+            hoverHotkeys?.stop()
+            player.panelNotice("Hotkeys while hovering: off", symbol: "keyboard", sticky: false)
+            return
+        }
+        if HoverHotkeys.isTrusted {
+            hoverHotkeys?.start()
+            player.panelNotice("Hotkeys while hovering: on", symbol: "keyboard", sticky: false)
+            return
+        }
+        let a = NSAlert()
+        a.messageText = "One more step"
+        a.informativeText = "To use Reel's hotkeys while the mouse is over it and another app is active, turn Reel on in System Settings → Privacy & Security → Accessibility. Reel only acts on its own hotkeys (Space, arrows, ⇧-arrows, L, M, F), and only while the mouse is over its window."
+        a.addButton(withTitle: "Open Settings"); a.addButton(withTitle: "Cancel")
+        a.beginSheetModal(for: player.window) { r in
+            guard r == .alertFirstButtonReturn else {
+                Prefs.hoverHotkeys = false; self.hoverMenuItem?.state = .off; return
+            }
+            self.hoverHotkeys?.askForPermission()
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+            self.hoverHotkeys?.start()     // keeps checking, and switches on once allowed
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
@@ -763,7 +796,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu("Reel", [
             { let i = item("About Reel", #selector(AppDelegate.showAbout(_:))); i.target = self; return i }(),
             { let i = item("Check for Updates…", #selector(AppDelegate.checkForUpdates(_:))); i.target = self; return i }(),
-            { let i = item("Hover Hotkeys…", #selector(AppDelegate.hoverHotkeysSettings(_:))); i.target = self; return i }(),
+            .separator(),
+            { let i = item("Hotkeys While Hovering", #selector(AppDelegate.toggleHoverHotkeys(_:))); i.target = self
+              i.state = Prefs.hoverHotkeys ? .on : .off; hoverMenuItem = i; return i }(),
             .separator(),
             item("Hide Reel", #selector(NSApplication.hide(_:)), "h"),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
@@ -839,7 +874,7 @@ if let u = ProcessInfo.processInfo.environment["REEL_RESOLVE"] {
 VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_VP9)
 if #available(macOS 14.0, *) { VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_AV1) }
 
-let app = NSApplication.shared
+let app = ReelApplication.shared   // right-clicks reach the player even while Reel is in the background
 let delegate = AppDelegate()
 app.delegate = delegate
 app.setActivationPolicy(.regular)

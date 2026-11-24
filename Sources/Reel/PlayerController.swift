@@ -212,6 +212,21 @@ final class GestureOverlay: NSView {
 /// Views that handle right-click / right-drag themselves (icon menu, seek, volume).
 protocol RightClickHandling: NSView {}
 
+/// Reel's application object. While Reel isn't the active app, AppKit treats a click on its window as a
+/// "bring Reel forward" click and holds it back — so a right-click only focused Reel, and the menu needed a
+/// second click. Right-button events on the player go straight to it instead: the icon menu (or right-drag
+/// seek/volume) works on the first click, and Reel stays in the background.
+final class ReelApplication: NSApplication {
+    override func sendEvent(_ event: NSEvent) {
+        if !isActive, [.rightMouseDown, .rightMouseDragged, .rightMouseUp].contains(event.type),
+           let w = event.window as? PlayerWindow {
+            w.sendEvent(event)
+            return
+        }
+        super.sendEvent(event)
+    }
+}
+
 /// The player window. Right-clicks (menu) and right-drags (seek / volume) work even when Reel
 /// isn't focused — normally macOS would spend that click just bringing the window forward.
 final class PlayerWindow: NSWindow {
@@ -976,6 +991,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     @objc func toggleLoop() {
         guard let t = currentTrack else { NSSound.beep(); return }
         panelToggleLoop(track: t.id)
+        let on = currentTrack?.loop ?? !t.loop
+        toast.show(on ? "Loop on" : "Loop off", symbol: on ? "repeat.1" : "repeat", sticky: false)
     }
 
     @objc func togglePin() { setPin(!Prefs.alwaysOnTop) }
@@ -1269,6 +1286,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     func hudToggleMute() {
         muted.toggle()
         backend?.setVolume(muted ? 0 : Loudness.gain(volume))
+        toast.show(muted ? "Muted" : "Sound on", symbol: muted ? "speaker.slash.fill" : "speaker.wave.2.fill", sticky: false)
     }
 
     // MARK: PlaylistPanelDelegate

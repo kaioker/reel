@@ -19,15 +19,11 @@ final class HoverHotkeys {
     var isActive: Bool { tap != nil }
     static var isTrusted: Bool { AXIsProcessTrusted() }
 
-    /// Starts now if permitted; otherwise asks once (System Settings) and starts when it's granted.
+    /// Starts now if permitted; otherwise starts as soon as the permission is granted.
     func start() {
         if debugLog { print("hover: start, trusted=\(HoverHotkeys.isTrusted)"); fflush(stdout) }
         if install() { return }
-        let d = UserDefaults.standard
-        if !d.bool(forKey: "askedHoverHotkeysPermission") {
-            d.set(true, forKey: "askedHoverHotkeysPermission")
-            askForPermission()
-        }
+        // not allowed yet: keep checking quietly and switch on once it is (asking is done by the setting)
         retry?.invalidate()
         retry = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] t in
             if self?.install() == true { t.invalidate() }
@@ -60,6 +56,14 @@ final class HoverHotkeys {
         return true
     }
 
+    /// Turns hover hotkeys off completely (removes the event tap).
+    func stop() {
+        retry?.invalidate(); retry = nil
+        if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
+        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        tap = nil; source = nil
+    }
+
     fileprivate func reenable() { if let tap { CGEvent.tapEnable(tap: tap, enable: true) } }
 
     /// The decision, separated out so it can be tested without a real tap.
@@ -76,7 +80,9 @@ final class HoverHotkeys {
         let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         guard HoverHotkeys.shouldHandle(keyCode: code, flags: event.flags, reelIsActive: NSApp.isActive,
                                         pointerOverPlayer: player.isPointerOverPlayer()) else { return false }
-        let chars = NSEvent(cgEvent: event)?.charactersIgnoringModifiers
+        // letters by key position, so F / L / M work even if the event carries no characters
+        let byPosition: [UInt16: String] = [3: "f", 37: "l", 46: "m"]
+        let chars = NSEvent(cgEvent: event)?.charactersIgnoringModifiers.flatMap { $0.isEmpty ? nil : $0 } ?? byPosition[code]
         return player.performHotkey(keyCode: code, shift: event.flags.contains(.maskShift), chars: chars)
     }
 }

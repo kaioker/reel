@@ -232,6 +232,11 @@ enum Prefs {
     }
     /// The volume *level* you see as a percentage (0…1, perceptual — see `Loudness`).
     /// Older versions stored the raw gain under "volume"; that's converted so it sounds the same.
+    /// Reel's hotkeys while the mouse is over it, even when another app is active (off by default).
+    static var hoverHotkeys: Bool {
+        get { UserDefaults.standard.bool(forKey: "hoverHotkeys") }
+        set { UserDefaults.standard.set(newValue, forKey: "hoverHotkeys") }
+    }
     static var volume: Float {
         get {
             if let v = UserDefaults.standard.object(forKey: "volumeLevel") as? Float { return v }
