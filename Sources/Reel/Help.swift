@@ -15,6 +15,7 @@ final class HelpWindow: NSObject {
             ("⇧↑ / ⇧↓", "Previous / next playlist"),
             ("L", "Loop this track (on by default for new tracks)"),
             ("M", "Mute"),
+            ("Headset / media keys", "Play/pause, next and previous track — AirPods taps, headset buttons, ⏯ ⏭ ⏮ keys, Control Center"),
             ("F  or  ⌃⌘F", "Full screen (Esc leaves)"),
             ("Hover hotkeys", "Optional: Reel → Hotkeys While Hovering makes these keys work with the mouse over Reel even while another app is active"),
         ]),

@@ -435,6 +435,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
         refreshBackdrop()
         scheduleHide(after: 1.5)
+        _ = nowPlaying   // register for headset buttons / media keys at launch
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in self?.handleKey(e) ?? e }
         NotificationCenter.default.addObserver(forName: Library.changed, object: nil, queue: .main) { [weak self] _ in
             self?.updateHUDState()
@@ -773,6 +774,26 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
     // MARK: Playback
 
+    // MARK: Headset buttons / media keys / Control Center (Now Playing)
+
+    private lazy var nowPlaying = NowPlaying(.init(
+        play: { [weak self] in guard let self else { return }
+            if self.current == nil { self.nextTrack() } else if self.backend?.isPlaying != true { self.togglePlay() } },
+        pause: { [weak self] in if self?.backend?.isPlaying == true { self?.togglePlay() } },
+        toggle: { [weak self] in self?.togglePlay() },
+        next: { [weak self] in self?.nextTrack() },
+        previous: { [weak self] in self?.prevTrack() },
+        skip: { [weak self] s in self?.skip(s) },
+        seek: { [weak self] t in self?.backend?.seek(to: t); self?.updateNowPlaying(force: true) }
+    ))
+
+    func updateNowPlaying(force: Bool = false) {
+        let album = current.flatMap { list($0.playlist)?.name }
+        nowPlaying.update(title: currentTrack?.displayName, album: album, duration: backend?.duration ?? 0,
+                          elapsed: backend?.currentTime ?? 0, playing: backend?.isPlaying ?? false, force: force)
+    }
+    var debugNowPlaying: NowPlaying { nowPlaying }
+
     private var currentTrack: Track? {
         guard let c = current else { return nil }
         return list(c.playlist)?.tracks.first { $0.id == c.track }
@@ -869,6 +890,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         window.title = track.displayName
         updateHUDState()
         panel.refreshNowPlaying()
+        updateNowPlaying(force: true)
         root.needsLayout = true
     }
 
@@ -990,6 +1012,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     }
 
     func skip(_ s: Double) {
+        defer { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { self.updateNowPlaying(force: true) } }
         guard let b = backend else { return }
         var t = b.currentTime + s
         if b.duration > 0 { t = min(t, max(0, b.duration - 0.25)) }
@@ -1072,6 +1095,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     private var lastLog = 0.0
     func backendTick() {
         guard let b = backend else { return }
+        updateNowPlaying()
         if Date().timeIntervalSince(lastResumeSave) > 5 { lastResumeSave = Date(); saveResumePoint() }
         if let s = pendingSeek, b.duration > 0 {
             pendingSeek = nil
@@ -1089,6 +1113,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     }
 
     func backendStateChanged() {
+        updateNowPlaying(force: true)
         updateHUDState()
     }
 

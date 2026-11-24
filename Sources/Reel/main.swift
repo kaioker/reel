@@ -1,4 +1,5 @@
 import AppKit
+import MediaPlayer
 import VideoToolbox
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -518,6 +519,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             print("Accessibility permission for this test build:", HoverHotkeys.isTrusted ? "granted" : "not granted (expected)")
             print(ok ? "all cases pass" : "FAILURES"); fflush(stdout); NSApp.terminate(nil)
+        }
+        if ProcessInfo.processInfo.environment["REEL_NOWPLAYING_TEST"] != nil {
+            let pl = self.player!, np = pl.debugNowPlaying
+            func show(_ label: String) {
+                pl.updateNowPlaying(force: true)
+                let i = np.debugInfo ?? [:]
+                print(String(format: "%@: \"%@\" in \"%@\" · %.0fs long · at %.1fs · %@", label,
+                             (i[MPMediaItemPropertyTitle] as? String) ?? "-", (i[MPMediaItemPropertyAlbumTitle] as? String) ?? "-",
+                             (i[MPMediaItemPropertyPlaybackDuration] as? Double) ?? 0, (i[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double) ?? 0,
+                             np.debugState == .playing ? "playing" : np.debugState == .paused ? "paused" : "stopped"))
+                fflush(stdout)
+            }
+            let steps: [(Double, () -> Void)] = [
+                (2.0, { show("after launch + play") }),
+                (0.1, { np.actions.toggle() }),
+                (0.6, { show("headset ⏯") }),
+                (0.1, { np.actions.toggle() }),
+                (0.6, { show("headset ⏯ again") }),
+                (0.1, { np.actions.skip(10) }),
+                (0.6, { show("skip +10") }),
+                (0.1, { np.actions.next() }),
+                (1.2, { show("headset ⏭") }),
+                (0.1, { np.actions.previous() }),
+                (1.2, { show("headset ⏮"); print("commands enabled:", MPRemoteCommandCenter.shared().togglePlayPauseCommand.isEnabled, MPRemoteCommandCenter.shared().nextTrackCommand.isEnabled); fflush(stdout); NSApp.terminate(nil) }),
+            ]
+            var t = 0.0
+            for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t, execute: f) }
         }
         if ProcessInfo.processInfo.environment["REEL_AUTOPLAY_TEST"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
