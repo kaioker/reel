@@ -16,6 +16,7 @@ final class HelpWindow: NSObject {
             ("L", "Loop this track (on by default for new tracks)"),
             ("M", "Mute"),
             ("F  or  ⌃⌘F", "Full screen (Esc leaves)"),
+            ("Hover hotkeys", "With the mouse over Reel these keys work even while another app is active (Reel → Hover Hotkeys… to allow)"),
         ]),
         ("Seeking & volume", [
             ("Right-drag ← →", "Seek — the whole video is the bar; the unplayed part dims"),

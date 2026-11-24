@@ -1299,32 +1299,46 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         if let tv = window.firstResponder as? NSTextView, tv.isEditable { return e }
         let mods = e.modifierFlags.intersection([.command, .control, .option])
         if !mods.isEmpty { return e }
-        if e.modifierFlags.contains(.shift) {
-            switch e.keyCode {
-            case 123: prevTrack(); return nil          // ⇧←
-            case 124: nextTrack(); return nil          // ⇧→
-            case 126: switchPlaylist(-1); return nil   // ⇧↑
-            case 125: switchPlaylist(1); return nil    // ⇧↓
+        return performHotkey(keyCode: e.keyCode, shift: e.modifierFlags.contains(.shift),
+                             chars: e.charactersIgnoringModifiers) ? nil : e
+    }
+
+    /// Reel's hotkeys. Used when Reel is focused, and by HoverHotkeys when the mouse is over it.
+    /// Returns false if the key isn't one of Reel's (so it goes on to wherever it was headed).
+    @discardableResult
+    func performHotkey(keyCode: UInt16, shift: Bool, chars: String?) -> Bool {
+        if shift {
+            switch keyCode {
+            case 123: prevTrack(); return true          // ⇧←
+            case 124: nextTrack(); return true          // ⇧→
+            case 126: switchPlaylist(-1); return true   // ⇧↑
+            case 125: switchPlaylist(1); return true    // ⇧↓
             default: break
             }
         }
-        switch e.keyCode {
+        switch keyCode {
         case 123: skip(-10)                // ←
         case 124: skip(10)                 // →
         case 126: prevTrack()              // ↑
         case 125: nextTrack()              // ↓
         case 49: togglePlay()              // space
         case 53:                           // esc
-            if isFullscreen { window.toggleFullScreen(nil) } else { return e }
+            if isFullscreen { window.toggleFullScreen(nil) } else { return false }
         default:
-            switch e.charactersIgnoringModifiers?.lowercased() {
+            switch chars?.lowercased() {
             case "f": window.toggleFullScreen(nil)
             case "l": toggleLoop()
             case "m": hudToggleMute()
-            default: return e
+            default: return false
             }
         }
-        return nil
+        return true
+    }
+
+    /// Is the pointer over the player window (video or playlist) right now?
+    func isPointerOverPlayer(_ screenPoint: NSPoint = NSEvent.mouseLocation) -> Bool {
+        window.isVisible && !window.isMiniaturized && window.frame.contains(screenPoint)
+            && NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0) == window.windowNumber
     }
 
     // MARK: Menu actions (also reached via the responder chain)
