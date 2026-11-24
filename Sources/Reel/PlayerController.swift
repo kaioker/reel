@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 private let minPanelW: CGFloat = 220
 private let maxPanelW: CGFloat = 600
@@ -446,26 +447,33 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     private var pendingSeek: Double?
 
     /// Saved right before an update restart: playlist, track, position, playing or not.
-    func saveResumePoint() {
+    /// Where you are: saved on quit, every few seconds while something's loaded, and before an update restart.
+    func saveResumePoint(forUpdate: Bool = false) {
         guard let c = current, c.playlist != transientID, let b = backend else { return }
         UserDefaults.standard.set([
             "playlist": c.playlist.uuidString, "track": c.track.uuidString,
             "time": b.currentTime, "playing": b.isPlaying, "at": Date().timeIntervalSince1970,
+            "update": forUpdate || Updater.isRelaunching,
         ] as [String: Any], forKey: "resumePoint")
     }
+    private var lastResumeSave = Date.distantPast
 
-    /// On launch: pick up where an update restart left off (used once, only if recent). True if it did.
+    /// On launch: reopen where you left off. After an update restart it carries on exactly as it was
+    /// (playing or not, if the restart was recent); after a normal quit it reopens that track at that spot,
+    /// paused. True if it did.
     func resumeIfSaved() -> Bool {
         guard let d = UserDefaults.standard.dictionary(forKey: "resumePoint") else { return false }
         UserDefaults.standard.removeObject(forKey: "resumePoint")
-        guard let at = d["at"] as? Double, Date().timeIntervalSince1970 - at < 600,
-              let pid = (d["playlist"] as? String).flatMap(UUID.init(uuidString:)),
+        let afterUpdate = d["update"] as? Bool ?? true
+        let at = d["at"] as? Double ?? 0
+        if afterUpdate && Date().timeIntervalSince1970 - at > 600 { return false }
+        guard let pid = (d["playlist"] as? String).flatMap(UUID.init(uuidString:)),
               let tid = (d["track"] as? String).flatMap(UUID.init(uuidString:)),
               Library.shared.playlist(pid)?.tracks.contains(where: { $0.id == tid }) == true else { return false }
         panel.show(playlist: pid)
         let t = d["time"] as? Double ?? 0
         pendingSeek = t > 1 ? t : nil
-        play(playlist: pid, track: tid, startPaused: !(d["playing"] as? Bool ?? false))
+        play(playlist: pid, track: tid, startPaused: afterUpdate ? !(d["playing"] as? Bool ?? false) : true)
         return true
     }
 
@@ -1064,6 +1072,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     private var lastLog = 0.0
     func backendTick() {
         guard let b = backend else { return }
+        if Date().timeIntervalSince(lastResumeSave) > 5 { lastResumeSave = Date(); saveResumePoint() }
         if let s = pendingSeek, b.duration > 0 {
             pendingSeek = nil
             b.seek(to: min(s, max(0, b.duration - 0.5)))
@@ -1365,7 +1374,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         let p = NSOpenPanel()
         p.allowsMultipleSelection = true
         p.canChooseDirectories = true
-        p.allowedContentTypes = [.audiovisualContent, .folder, .json]
+        p.allowedContentTypes = [.audiovisualContent, .folder, .reelPlaylist, .json]
         p.beginSheetModal(for: window) { r in
             if r == .OK { self.panel.add(files: p.urls, at: nil, playFirst: true) }
         }

@@ -6,6 +6,8 @@ enum Updater {
     static let repo = "kaioker/reel"
     /// Called right before quitting to install an update (saves where playback is).
     static var willRelaunch: (() -> Void)?
+    /// True while quitting to install an update (so the saved spot resumes playing, not paused).
+    static var isRelaunching = false
 
     struct Release { var tag: String; var version: [Int]; var zipURL: URL? }
 
@@ -118,6 +120,7 @@ enum Updater {
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
         p.arguments = ["-c", script]
         try? p.run()
+        isRelaunching = true
         willRelaunch?()
         Library.shared.saveNow()
         NSApp.terminate(nil)

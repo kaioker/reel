@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 protocol PlaylistPanelDelegate: AnyObject {
     var nowPlayingTrackID: UUID? { get }
@@ -355,8 +356,8 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     @objc func exportPlaylist() {
         guard let p = Library.shared.playlist(shownID), let window else { return }
         let save = NSSavePanel()
-        save.nameFieldStringValue = p.name.replacingOccurrences(of: "/", with: "-") + ".json"
-        save.allowedContentTypes = [.json]
+        save.nameFieldStringValue = p.name.replacingOccurrences(of: "/", with: "-") + ".reel"
+        save.allowedContentTypes = [.reelPlaylist]
         save.message = "Drop the exported file on Reel to import it."
         save.beginSheetModal(for: window) { r in
             guard r == .OK, let url = save.url else { return }
@@ -774,7 +775,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     /// What's being dragged, in a few words — or nil if there's nothing Reel can add in it.
     static func dropSummary(_ pb: NSPasteboard) -> DropSummary? {
         if let files = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !files.isEmpty {
-            let lists = files.filter { $0.pathExtension.lowercased() == "json" }
+            let lists = files.filter { ["reel", "json"].contains($0.pathExtension.lowercased()) }
             if files.count == 1 {
                 let f = files[0]
                 if !lists.isEmpty { return DropSummary(detail: "“\(f.deletingPathExtension().lastPathComponent)”", isPlaylist: true) }

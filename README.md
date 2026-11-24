@@ -5,7 +5,7 @@ A tiny, QuickTime-style video player for macOS that stays on top — with playli
 - The video fills the whole window (no title bar); controls appear only while the mouse moves
 - Shrinks far smaller than most players and keeps the video's shape; park it in a screen corner and it stays there
 - Always on top by default (⌘T), so it doesn't slide behind other apps
-- Collapsible playlist beside the video, multiple playlists, export/import as `.json`
+- Collapsible playlist beside the video, multiple playlists, export/import as `.reel` files (double-click to open)
 - Plays video & audio files, direct links, HLS, YouTube videos and playlists, Bilibili, and WebM
   (transparent WebM and formats macOS can't decode play right away through FFmpeg built into the app — nothing to install)
 

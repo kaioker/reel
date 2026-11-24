@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 enum TrackKind: String, Codable {
     case local      // file on disk
@@ -68,6 +69,12 @@ struct Playlist: Codable, Identifiable {
     var tracks: [Track] = []
 }
 
+/// Reel's own playlist file: `.reel` (JSON inside). Declared in Info.plist so Finder shows it with Reel's
+/// icon and double-clicking opens Reel. Older `.json` exports still import.
+extension UTType {
+    static let reelPlaylist = UTType(exportedAs: "app.reel.reel-playlist", conformingTo: .json)
+}
+
 /// What the export button writes; dropping one of these on Reel imports it as a new playlist.
 /// Each track is just its name, source link, loop and skip — the type is worked out from the link.
 struct PlaylistFile: Codable {
@@ -92,7 +99,7 @@ struct PlaylistFile: Codable {
         readNamed(url)?.1
     }
     static func readNamed(_ url: URL) -> (String, [Track])? {
-        guard url.pathExtension.lowercased() == "json", let data = try? Data(contentsOf: url) else { return nil }
+        guard ["reel", "json"].contains(url.pathExtension.lowercased()), let data = try? Data(contentsOf: url) else { return nil }
         if let f = try? JSONDecoder().decode(PlaylistFile.self, from: data), f.format == "reel-playlist" {
             return (f.name, f.tracks.compactMap { e in
                 guard var t = MediaResolver.track(fromSource: e.source, name: e.name) else { return nil }
