@@ -7,7 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ n: Notification) {
         buildMenu()
-        Updater.willRelaunch = { [weak self] in self?.player.saveResumePoint() }
+        Updater.willRelaunch = { [weak self] in self?.player.saveResumePoint(forUpdate: true) }
         showWelcomeIfFreshInstall()
         player = PlayerController()
         player.showWindow()
@@ -354,12 +354,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
         }
         if let mode = ProcessInfo.processInfo.environment["REEL_RESUME_TEST"] {
-            if mode == "save" {
+            if mode == "quit" {   // a normal quit (not an update) at 0:23 on the second track
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    let pl = self.player!
+                    pl.panelPlay(playlist: pl.panel.shownID, track: pl.panel.tracks[1].id)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        pl.debugSeek(23.0)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            print(String(format: "before quit: %@ t=%.1f playing=%@", pl.panel.tracks[1].displayName, pl.debugCurrentTime, pl.debugIsPlaying ? "yes" : "no"))
+                            fflush(stdout); NSApp.terminate(nil)
+                        }
+                    }
+                }
+            } else if mode == "save" {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     self.player.debugSeek(23.0)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         print(String(format: "before restart: t=%.1f playing=%@", self.player.debugCurrentTime, self.player.debugIsPlaying ? "yes" : "no"))
-                        Updater.willRelaunch?(); fflush(stdout); NSApp.terminate(nil)
+                        Updater.isRelaunching = true; Updater.willRelaunch?(); fflush(stdout); NSApp.terminate(nil)
                     }
                 }
             } else {
@@ -692,7 +704,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
-    func applicationWillTerminate(_ n: Notification) { player.saveState() }
+    func applicationWillTerminate(_ n: Notification) {
+        player.saveResumePoint()          // reopen on this track, at this spot
+        player.saveState()
+    }
 
     private func buildMenu() {
         let main = NSMenu()
