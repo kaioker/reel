@@ -49,6 +49,9 @@ final class TripleClickField: NSTextField, NSTextFieldDelegate {
     }
     override var mouseDownCanMoveWindow: Bool { false }
 
+    /// A faded-out title (the playlist name and "Playlists" share a spot and cross-fade) doesn't catch clicks.
+    override func hitTest(_ point: NSPoint) -> NSView? { alphaValue < 0.05 ? nil : super.hitTest(point) }
+
     override func mouseDown(with event: NSEvent) {
         if let onClick, !editingName { onClick(); return }
         if handlesRenameClick && event.clickCount == 2 && !editingName { beginRename(); return }

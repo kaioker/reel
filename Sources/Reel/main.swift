@@ -428,8 +428,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 (1.0, { let a = lib.playlists[0]; pl.panelPlay(playlist: a.id, track: a.tracks[1].id); pl.setPanel(open: true)
                         print("1. playing 2nd track of \(a.name), opened pane: \(state())") }),
                 (1.0, { snap("1-tracks"); panel.debugSetProgress(0.8) }),
-                (0.3, { snap("2-mid-swipe"); panel.debugSetProgress(0); panel.nameField.onClick?() }),
+                (0.3, { snap("2-mid-swipe"); panel.debugSetProgress(0)
+                        // a real click: whatever the window hit-tests at the title's spot gets the mouse-down
+                        let f = panel.nameField, at = f.convert(NSPoint(x: 8, y: f.bounds.midY), to: nil)
+                        let frameView = w.contentView!.superview!
+                        let hit = frameView.hitTest(frameView.convert(at, from: nil))
+                        print("   click on the title lands on: \(hit === f ? "the playlist name" : hit.map { String(describing: type(of: $0)) } ?? "nothing")")
+                        if let e = NSEvent.mouseEvent(with: .leftMouseDown, location: at, modifierFlags: [], timestamp: 0, windowNumber: w.windowNumber,
+                                                      context: nil, eventNumber: 0, clickCount: 1, pressure: 1) { hit?.mouseDown(with: e) } }),
                 (0.6, { snap("3-playlists"); print("2. clicked the title: \(state())")
+                        let f = panel.nameField, at = f.convert(NSPoint(x: 8, y: f.bounds.midY), to: nil)
+                        let frameView = w.contentView!.superview!
+                        let hit = frameView.hitTest(frameView.convert(at, from: nil))
+                        print("   clicking there now lands on \(hit is TripleClickField ? "a title (alpha \((hit as! NSView).alphaValue))" : "something else")")
                         panel.playlistTable.onPlay?(1) }),
                 (0.6, { snap("4-other-playlist"); print("3. clicked playlist 2: \(state())  (still playing the same track)") }),
                 (0.3, { pl.togglePlaylist() }),
