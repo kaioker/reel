@@ -75,23 +75,31 @@ extension UTType {
     static let reelPlaylist = UTType(exportedAs: "app.reel.reel-playlist", conformingTo: .json)
 }
 
-/// What the export button writes; dropping one of these on Reel imports it as a new playlist.
-/// Each track is just its name, source link, loop and skip — the type is worked out from the link.
+/// Reel's playlist file. The export button writes one; dropping one on Reel imports it as a new playlist.
+/// Each track is its name, source link, loop and skip — the type is worked out from the link.
+/// Reel's own saved playlists (Application Support/Reel/Playlists) are the same files with a little more
+/// kept: the playlist's id and place in the list, and each track's full details (ids, titles, length).
 struct PlaylistFile: Codable {
     struct Entry: Codable {
         var name: String
         var source: String
         var loop: Bool
         var skip: Bool
+        /// Full details, in Reel's own saved playlists (ignored when importing someone's playlist).
+        var track: Track?
     }
     var format = "reel-playlist"
     var version = 2
     var name: String
+    var id: UUID?
+    var position: Int?
     var tracks: [Entry]
 
-    init(_ p: Playlist) {
+    init(_ p: Playlist, full: Bool = false, position: Int? = nil) {
         name = p.name
-        tracks = p.tracks.map { Entry(name: $0.displayName, source: $0.url?.absoluteString ?? $0.source, loop: $0.loop, skip: $0.isSkipped) }
+        if full { id = p.id; self.position = position }
+        tracks = p.tracks.map { Entry(name: $0.displayName, source: $0.url?.absoluteString ?? $0.source, loop: $0.loop, skip: $0.isSkipped,
+                                      track: full ? $0 : nil) }
     }
 
     /// Reads the current format, or the earlier one that stored whole tracks.
@@ -102,6 +110,7 @@ struct PlaylistFile: Codable {
         guard ["reel", "json"].contains(url.pathExtension.lowercased()), let data = try? Data(contentsOf: url) else { return nil }
         if let f = try? JSONDecoder().decode(PlaylistFile.self, from: data), f.format == "reel-playlist" {
             return (f.name, f.tracks.compactMap { e in
+                if let t = e.track { return t }
                 guard var t = MediaResolver.track(fromSource: e.source, name: e.name) else { return nil }
                 t.loop = e.loop
                 t.skip = e.skip ? true : nil
@@ -112,9 +121,26 @@ struct PlaylistFile: Codable {
         if let f = try? JSONDecoder().decode(Legacy.self, from: data), f.format == "reel-playlist" { return (f.name, f.tracks) }
         return nil
     }
+
+    /// One of Reel's saved playlists: the playlist (same id as before) and its place in the list.
+    static func readSaved(_ url: URL) -> (Playlist, Int?)? {
+        guard let data = try? Data(contentsOf: url),
+              let f = try? JSONDecoder().decode(PlaylistFile.self, from: data), f.format == "reel-playlist",
+              let (name, tracks) = readNamed(url) else { return nil }
+        return (Playlist(id: f.id ?? UUID(), name: name, tracks: tracks), f.position)
+    }
+
+    func encoded() -> Data {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return (try? enc.encode(self)) ?? Data()
+    }
 }
 
-/// Holds every playlist and saves to ~/Library/Application Support/Reel/library.json
+/// Holds every playlist. Each one is saved as its own .reel file in
+/// ~/Library/Application Support/Reel/Playlists — the same format Export writes, so you can copy them,
+/// back them up or share them. (Older versions kept everything in library.json; that's converted once
+/// and left where it was as a backup.)
 final class Library {
     static let shared = Library()
     static let changed = Notification.Name("ReelLibraryChanged")
@@ -123,27 +149,68 @@ final class Library {
     /// Whether a saved library was already on disk when Reel started (i.e. not a fresh install).
     private(set) var existedAtLaunch = false
     private var saveWork: DispatchWorkItem?
+    private let saveQueue = DispatchQueue(label: "reel.library.save")
 
-    private var fileURL: URL {
-        if let override = ProcessInfo.processInfo.environment["REEL_LIBRARY"] { return URL(fileURLWithPath: override) }
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Reel", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("library.json")
+    /// REEL_LIBRARY: a folder of .reel files to use instead, or a .json file in the old single-file format (tests).
+    private enum Store { case folder(URL), legacy(URL) }
+    private static let store: Store = {
+        if let o = ProcessInfo.processInfo.environment["REEL_LIBRARY"] {
+            return o.lowercased().hasSuffix(".json") ? .legacy(URL(fileURLWithPath: o)) : .folder(URL(fileURLWithPath: o, isDirectory: true))
+        }
+        return .folder(supportDir.appendingPathComponent("Playlists", isDirectory: true))
+    }()
+    private static var supportDir: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Reel", isDirectory: true)
     }
+    /// Where the playlists are saved (nil when testing with a single file).
+    static var folder: URL? { if case .folder(let d) = store { return d } else { return nil } }
+
+    /// File names (lowercased) Reel wrote or loaded in the folder — the only ones it ever deletes or replaces.
+    private var owned = Set<String>()
+    /// Each playlist's file name from the last save, for "Show in Finder".
+    private var fileNames: [UUID: String] = [:]
 
     private init() {
-        existedAtLaunch = FileManager.default.fileExists(atPath: fileURL.path)
-        if let data = try? Data(contentsOf: fileURL),
-           let lists = try? JSONDecoder().decode([Playlist].self, from: data), !lists.isEmpty {
-            playlists = lists
-        } else {
-            playlists = [Playlist(name: "Playlist 1")]
+        let fm = FileManager.default
+        var migrate = false
+        switch Self.store {
+        case .legacy(let url):
+            existedAtLaunch = fm.fileExists(atPath: url.path)
+            if let data = try? Data(contentsOf: url), let lists = try? JSONDecoder().decode([Playlist].self, from: data) { playlists = lists }
+        case .folder(let dir):
+            if fm.fileExists(atPath: dir.path) {
+                existedAtLaunch = true
+                var loaded: [(Playlist, Int?, String)] = []
+                var ids = Set<UUID>()
+                let files = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+                for f in files where f.pathExtension.lowercased() == "reel" {
+                    guard var (p, pos) = PlaylistFile.readSaved(f) else { continue }
+                    if !ids.insert(p.id).inserted { p.id = UUID() }          // a copied file: give it its own identity
+                    loaded.append((p, pos, f.lastPathComponent))
+                    owned.insert(f.lastPathComponent.lowercased())
+                }
+                loaded.sort { ($0.1 ?? Int.max, $0.0.name.lowercased()) < ($1.1 ?? Int.max, $1.0.name.lowercased()) }
+                playlists = loaded.map(\.0)
+                for (p, _, name) in loaded { fileNames[p.id] = name }
+            } else if Self.folder == Self.supportDir.appendingPathComponent("Playlists", isDirectory: true) {
+                let old = Self.supportDir.appendingPathComponent("library.json")
+                if let data = try? Data(contentsOf: old), let lists = try? JSONDecoder().decode([Playlist].self, from: data) {
+                    playlists = lists; existedAtLaunch = true; migrate = true
+                }
+            }
         }
+        if playlists.isEmpty { playlists = [Playlist(name: "Playlist 1")] }
+        if migrate { saveNow() }
     }
 
     func index(of id: UUID) -> Int? { playlists.firstIndex { $0.id == id } }
     func playlist(_ id: UUID) -> Playlist? { index(of: id).map { playlists[$0] } }
+
+    /// The saved .reel file for this playlist, if it has been written.
+    func fileURL(for id: UUID) -> URL? {
+        guard let dir = Self.folder, let name = fileNames[id] else { return nil }
+        return dir.appendingPathComponent(name)
+    }
 
     func mutate(_ id: UUID, _ body: (inout Playlist) -> Void) {
         guard let i = index(of: id) else { return }
@@ -166,6 +233,16 @@ final class Library {
         playlists.append(p)
         didChange()
         return p
+    }
+
+    /// Moves playlists (by their current positions) to sit before `row` — the playlists list's drag to reorder.
+    func movePlaylists(_ rows: [Int], to row: Int) {
+        let rows = rows.filter { $0 < playlists.count }.sorted()
+        let moving = rows.map { playlists[$0] }
+        let before = rows.filter { $0 < row }.count
+        for r in rows.reversed() { playlists.remove(at: r) }
+        playlists.insert(contentsOf: moving, at: min(max(0, row - before), playlists.count))
+        didChange()
     }
 
     /// Adds an exported playlist as a new one (fresh ids, name made unique).
@@ -194,18 +271,54 @@ final class Library {
     private func didChange() {
         NotificationCenter.default.post(name: Library.changed, object: self)
         saveWork?.cancel()
-        let snapshot = playlists
-        let url = fileURL
-        let work = DispatchWorkItem {
-            if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: url, options: .atomic) }
-        }
+        let job = saveJob()
+        let work = DispatchWorkItem { job() }
         saveWork = work
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.4, execute: work)
+        saveQueue.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
     func saveNow() {
         saveWork?.cancel()
-        if let data = try? JSONEncoder().encode(playlists) { try? data.write(to: fileURL, options: .atomic) }
+        let job = saveJob()
+        saveQueue.sync { job() }
+    }
+
+    /// Works out what to write (on the main thread), returns the disk work to do.
+    private func saveJob() -> () -> Void {
+        switch Self.store {
+        case .legacy(let url):
+            let data = (try? JSONEncoder().encode(playlists)) ?? Data()
+            return { try? data.write(to: url, options: .atomic) }
+        case .folder(let dir):
+            var used = Set<String>(), writes: [(String, Data)] = []
+            for (i, p) in playlists.enumerated() {
+                var base = p.name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                while base.hasPrefix(".") { base.removeFirst() }
+                if base.isEmpty { base = "Playlist" }
+                var name = base + ".reel", n = 2
+                while used.contains(name.lowercased()) { name = "\(base) \(n).reel"; n += 1 }
+                used.insert(name.lowercased())
+                fileNames[p.id] = name
+                writes.append((name, PlaylistFile(p, full: true, position: i).encoded()))
+            }
+            // Renamed or deleted playlists' old files. `owned` only grows, so a save that's replaced by a newer one
+            // before it runs doesn't lose track of what needs removing.
+            owned.formUnion(used)
+            let stale = owned.subtracting(used)
+            return {
+                let fm = FileManager.default
+                try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+                for (name, data) in writes {
+                    let url = dir.appendingPathComponent(name)
+                    if (try? Data(contentsOf: url)) != data { try? data.write(to: url, options: .atomic) }
+                }
+                let present = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+                for f in present where stale.contains(f.lastPathComponent.lowercased()) && !used.contains(f.lastPathComponent.lowercased()) {
+                    try? fm.removeItem(at: f)
+                }
+            }
+        }
     }
 }
 

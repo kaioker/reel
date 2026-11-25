@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let u = ProcessInfo.processInfo.environment["REEL_PLAY"] {
             if u == "first" { player.nextTrack() } else { player.panel.add(text: u, at: nil, playFirst: true) }
         }
-        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
+        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
         if !testing { NSApp.activate(ignoringOtherApps: true) }
         if let dir = ProcessInfo.processInfo.environment["REEL_DOT_TEST"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
@@ -410,6 +410,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             ]
             var t = 0.0
             for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
+        }
+        if let dir = ProcessInfo.processInfo.environment["REEL_PLAYLISTS_TEST"] {
+            // Title click → all playlists (animated); opening one doesn't play; reopening the pane shows what's playing.
+            let pl = self.player!, panel = pl.panel, w = pl.window
+            func snap(_ name: String) {
+                let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+                p.arguments = ["-x", "-o", "-l\(w.windowNumber)", dir + "/" + name + ".png"]; try? p.run(); p.waitUntilExit()
+            }
+            func state() -> String {
+                let playing = pl.nowPlayingTrackID.flatMap { id in Library.shared.playlists.flatMap(\.tracks).first { $0.id == id }?.displayName } ?? "-"
+                return "mode=\(panel.mode == .playlists ? "playlists" : "tracks") title='\(panel.nameField.stringValue)' shown=\(Library.shared.playlist(panel.shownID)?.name ?? "?") rows=\(panel.table.numberOfRows) playing=\(playing)"
+            }
+            let lib = Library.shared
+            let steps: [(Double, () -> Void)] = [
+                (1.0, { let a = lib.playlists[0]; pl.panelPlay(playlist: a.id, track: a.tracks[1].id); pl.setPanel(open: true)
+                        print("1. playing 2nd track of \(a.name), opened pane: \(state())") }),
+                (1.0, { snap("1-tracks"); panel.nameField.onClick?() }),
+                (0.12, { snap("2-mid-swipe") }),
+                (0.6, { snap("3-playlists"); print("2. clicked the title: \(state())")
+                        panel.table.onPlay?(1) }),
+                (0.6, { snap("4-other-playlist"); print("3. clicked playlist 2: \(state())  (still playing the same track)") }),
+                (0.3, { pl.togglePlaylist() }),
+                (0.8, { pl.togglePlaylist() }),
+                (0.8, { snap("5-reopened"); print("4. closed and reopened the pane: \(state())")
+                        panel.newPlaylist() }),
+                (0.9, { snap("6-new-playlist")
+                        let editing = (0..<panel.table.numberOfRows).contains { (panel.table.view(atColumn: 0, row: $0, makeIfNecessary: false) as? TrackCell)?.title.editingName == true }
+                        print("5. new playlist: \(state()) name being typed=\(editing)")
+                        NSApp.terminate(nil) }),
+            ]
+            var t = 0.0
+            for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
+        }
+        if let step = ProcessInfo.processInfo.environment["REEL_STORE_TEST"] {
+            // Playlists saved as .reel files: list what loaded, optionally change things, save, quit.
+            let lib = Library.shared
+            func dump(_ tag: String) {
+                print(tag, lib.playlists.map { "\($0.name)(\($0.tracks.count))" }.joined(separator: ", "))
+                let files = ((try? FileManager.default.contentsOfDirectory(atPath: Library.folder?.path ?? "")) ?? []).sorted()
+                print("   files:", files)
+            }
+            dump("loaded:")
+            if step == "change" {
+                let first = lib.playlists[0]
+                lib.mutate(first.id) { $0.name = first.name + " renamed" }
+                let n = lib.addPlaylist(named: "Brand New")
+                lib.mutate(n.id) { $0.tracks = Array(first.tracks.prefix(2)).map { var t = $0; t.id = UUID(); return t } }
+                lib.movePlaylists([lib.playlists.count - 1], to: 0)            // newest to the top
+                if lib.playlists.count > 3 { lib.removePlaylist(lib.playlists[2].id) }
+                lib.saveNow()
+                dump("changed:")
+            }
+            fflush(stdout); NSApp.terminate(nil)
         }
         if let dir = ProcessInfo.processInfo.environment["REEL_LOOSE_TEST"] {
             // Drop on the video plays loose; the playlist's Add strip keeps it; ⌘V follows the pointer.

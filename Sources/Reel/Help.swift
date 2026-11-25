@@ -38,15 +38,18 @@ final class HelpWindow: NSObject {
         ("Playlist", [
             ("⌘P  or blue circle", "Show / hide the playlist (top right, beside the window buttons)"),
             ("", "While it's open, resize freely: the playlist absorbs the width (min 250 px tall)"),
+            ("", "Opening it shows what's playing"),
             ("Click a track", "Play it"),
-            ("Double-click a title", "Rename a track or the playlist (your name replaces the title)"),
+            ("Double-click a title", "Rename a track (your name replaces the title)"),
             ("Drag rows", "Reorder · Delete key removes"),
             ("Right-click a track", "Icons: play, play next, rename, skip (strike through), Finder / copy link, copy to playlist, remove"),
             ("End of a playlist", "Goes round to the first track again"),
             ("Struck-through tracks", "Stay in the playlist but next / previous / auto-advance pass over them; click to play anyway"),
             ("Grayed out + Fix", "The file isn't on this Mac — Fix to point at it (others in that folder relink too)"),
             ("", "The list follows the playing track unless you scroll somewhere else"),
-            ("⌄ beside the name", "Switch, add, clear or delete playlists (⌘N new playlist)"),
+            ("Click the playlist's name", "Swaps to all your playlists (click again to go back). Click one to open it — it plays once you pick a track"),
+            ("Right-click a playlist", "Rename, export, show in Finder, clear or delete · drag to reorder · drop files on one to add them there"),
+            ("⌘N  or  + in that list", "New playlist, ready to name"),
             ("Bottom row", "⏮ ⏯ ⏭ 🔁 for what's playing (🔁 lights up when looping) · export · + add files"),
         ]),
         ("Adding media", [
@@ -64,6 +67,7 @@ final class HelpWindow: NSObject {
         ]),
         ("Sharing playlists", [
             ("Export button", "Saves the shown playlist as a .reel file (name, link, loop, skip per track)"),
+            ("Where they live", "Each playlist is a .reel file in ~/Library/Application Support/Reel/Playlists"),
             ("Import", "Double-click a .reel file, drop it on Reel, or pick it with + — it arrives as a new playlist"),
         ]),
         ("On launch", [

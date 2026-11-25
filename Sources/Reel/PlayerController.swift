@@ -334,6 +334,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     private var failTimer: DispatchWorkItem?
 
     var nowPlayingTrackID: UUID? { current?.track }
+    var nowPlayingPlaylistID: UUID? { current.flatMap { $0.playlist == transientID ? nil : $0.playlist } }
     var debugCurrentTime: Double { backend?.currentTime ?? -1 }
     var debugIsPlaying: Bool { backend?.isPlaying ?? false }
     func debugHoldFlash() { flash.debugHold() }
@@ -658,6 +659,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
     func setPanel(open: Bool) {
         guard open != panelOpen, fixedVideoW == nil else { return }
+        if open { panel.showPlaying() }        // not where you were browsing: what's playing
         if isFullscreen {
             panelOpen = open
             updateOpacity()

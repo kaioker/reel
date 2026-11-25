@@ -57,7 +57,8 @@ double-clicking a file in Finder opens it in Reel.
 ## Playlists
 
 - A collapsible playlist slides out beside the video (⌘P, or the blue dot next to the window buttons)
-- As many playlists as you like; switch with ⇧↑ / ⇧↓
+- As many playlists as you like. Click the playlist's name to swap to the list of all of them, or switch with ⇧↑ / ⇧↓
+- Each playlist is saved as a `.reel` file in `~/Library/Application Support/Reel/Playlists`, easy to back up or copy
 - Per-track loop, play next, rename, and **skip**: struck-through tracks stay in the list, but playback passes over them
 - Plays round to the top at the end
 - **Share playlists as `.reel` files.** Export one, send it to a friend, and they double-click it to open it in Reel.
