@@ -2,7 +2,7 @@ import AppKit
 import MediaPlayer
 import VideoToolbox
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var player: PlayerController!
     var hoverHotkeys: HoverHotkeys?
     var hoverMenuItem: NSMenuItem?
@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let u = ProcessInfo.processInfo.environment["REEL_PLAY"] {
             if u == "first" { player.nextTrack() } else { player.panel.add(text: u, at: nil, playFirst: true) }
         }
-        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
+        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
         if !testing { NSApp.activate(ignoringOtherApps: true) }
         if let dir = ProcessInfo.processInfo.environment["REEL_DOT_TEST"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
@@ -399,7 +399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let steps: [(Double, () -> Void)] = [
                 (1.0, { _ = ia.onDragEnter?(pb); print("A. drag over video → playlist open: \(pl.panelOpen)") }),
                 (0.6, { ia.onDragExit?(); _ = ia.onDrop?(pb); print("   dropped on video") }),
-                (1.5, { print("   1.5 s after drop → open: \(pl.panelOpen)  (showing where it went)") }),
+                (1.5, { print("   1.5 s after drop → open: \(pl.panelOpen)  (played it, added nothing: closes right away)") }),
                 (2.0, { print("   3.5 s after drop → open: \(pl.panelOpen)  (closed again)") }),
                 (0.5, { _ = ia.onDragEnter?(pb); print("B. drag over video → open: \(pl.panelOpen)") }),
                 (0.6, { ia.onDragExit?(); print("   dragged away without dropping") }),
@@ -407,6 +407,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 (0.3, { pl.togglePlaylist(); print("C. opened by you → open: \(pl.panelOpen)") }),
                 (0.6, { _ = pl.panel.acceptExternal(pb, at: nil, playFirst: false); print("   pasted a file") }),
                 (3.5, { print("   3.5 s later → open: \(pl.panelOpen)  (stays open — you opened it)"); pb.releaseGlobally(); fflush(stdout); NSApp.terminate(nil) }),
+            ]
+            var t = 0.0
+            for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
+        }
+        if let dir = ProcessInfo.processInfo.environment["REEL_LOOSE_TEST"] {
+            // Drop on the video plays loose; the playlist's Add strip keeps it; ⌘V follows the pointer.
+            // REEL_DROP_FILES = three media files (a:b:c). Window screenshots go to `dir`.
+            let pl = self.player!, panel = pl.panel, w = pl.window, ia = pl.debugInteraction
+            let files = (ProcessInfo.processInfo.environment["REEL_DROP_FILES"] ?? "").split(separator: ":").map { URL(fileURLWithPath: String($0)) }
+            func pb(_ u: URL) -> NSPasteboard { let p = NSPasteboard(name: .init("reel-loose-\(getpid())-\(UUID().uuidString)")); p.clearContents(); p.writeObjects([u as NSURL]); return p }
+            func snap(_ name: String) {
+                let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+                p.arguments = ["-x", "-o", "-l\(w.windowNumber)", dir + "/" + name + ".png"]; try? p.run(); p.waitUntilExit()
+            }
+            func names() -> [String] { panel.tracks.map(\.displayName) }
+            func now() -> String { (pl.looseInfo.map { "LOOSE \($0.title)" }) ?? (pl.nowPlayingTrackID.flatMap { id in panel.tracks.first { $0.id == id }?.displayName } ?? "-") }
+            let start = names()
+            let steps: [(Double, () -> Void)] = [
+                (1.0, { let ok = ia.onDragEnter?(pb(files[0])) ?? false
+                        print("1. drag over video: accepted=\(ok) playlist open=\(pl.panelOpen) says '\(pl.dropHighlight.title)' / '\(pl.dropHighlight.detail)'") }),
+                (0.5, { snap("1-drag"); ia.onDragExit?(); _ = ia.onDrop?(pb(files[0]))
+                        print("   dropped on video → playing: \(now()), playlist unchanged: \(names() == start)") }),
+                (1.5, { print("   1.5 s later playlist open=\(pl.panelOpen) (closes again)")
+                        pl.togglePlaylist()
+                        print("2. open playlist: loose strip shown=\(!panel.debugLooseBar.isHidden)") }),
+                (0.8, { snap("2-loose-strip"); panel.debugLooseBar.button.performClick(nil)
+                        print("   clicked Add → playing: \(now()) in shown playlist=\(pl.nowPlayingTrackID.map { id in panel.tracks.contains { $0.id == id } } ?? false), strip shown=\(!panel.debugLooseBar.isHidden), loop=\(panel.tracks.last?.loop ?? false)")
+                        print("   playlist now: \(names())") }),
+                (0.8, { snap("3-added")
+                        let r = panel.table.rect(ofRow: 1); let wp = panel.table.convert(NSPoint(x: r.midX, y: r.minY + 4), to: nil)
+                        pl.paste(pb(files[1]), pointer: wp)
+                        print("3. ⌘V with pointer on the top half of row 2 → playlist: \(names())") }),
+                (0.8, { let r = panel.table.rect(ofRow: 0); let wp = panel.table.convert(NSPoint(x: r.midX, y: r.maxY - 4), to: nil)
+                        pl.paste(pb(files[2]), pointer: wp)
+                        print("4. ⌘V with pointer on the bottom half of row 1 → playlist: \(names())") }),
+                (0.8, { let v = pl.debugVideoArea; let wp = v.convert(NSPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)
+                        let before = names(); pl.paste(pb(files[1]), pointer: wp)
+                        print("5. ⌘V with pointer over the video → playing: \(now()), playlist unchanged: \(names() == before)") }),
+                (0.8, { let before = names().count; pl.paste(pb(files[2]), pointer: nil)
+                        print("6. ⌘V with pointer outside Reel → added at the end: \(names().count == before + 1) last='\(names().last ?? "")'") }),
+                (0.8, { print("7. (after a loose play) right-click menu offers Add: \(pl.looseInfo != nil)")
+                        NSApp.terminate(nil) }),
             ]
             var t = 0.0
             for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
@@ -830,6 +872,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Reel → Default Video Player / Default Music Player (checked while Reel is the default).
+    @objc func toggleDefaultPlayer(_ sender: NSMenuItem) {
+        let kind: DefaultPlayer.Kind = sender.tag == 0 ? .video : .music
+        guard DefaultPlayer.appURL != nil else {
+            player.panelNotice("Only the installed Reel app can be the default player", symbol: "exclamationmark.triangle.fill", sticky: false)
+            return
+        }
+        let on = !DefaultPlayer.isDefault(kind)
+        let what = kind == .video ? "video" : "music"
+        let symbol = kind == .video ? "film" : "music.note"
+        if on { player.panelNotice("macOS will ask you to confirm each \(what) file type", symbol: symbol, sticky: false) }
+        Task { @MainActor in
+            switch await DefaultPlayer.set(kind, on: on) {
+            case .done:
+                self.player.panelNotice(on ? "Reel now opens your \(what) files" : "\(what.capitalized) files open in your previous apps again",
+                                        symbol: symbol, sticky: false)
+            case .declined(let n):
+                self.player.panelNotice(n == 0 ? "Nothing changed" : "Stopped: \(n) \(what) type\(n == 1 ? "" : "s") changed",
+                                        symbol: symbol, sticky: false)
+            case .failed(let n):
+                self.player.panelNotice("macOS wouldn't change it" + (n > 0 ? " (\(n) changed first)" : ""),
+                                        symbol: "exclamationmark.triangle.fill", sticky: false)
+            }
+        }
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(toggleDefaultPlayer(_:)) {
+            item.state = DefaultPlayer.isDefault(item.tag == 0 ? .video : .music) ? .on : .off
+            return DefaultPlayer.appURL != nil
+        }
+        return true
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
     func applicationWillTerminate(_ n: Notification) {
         player.saveResumePoint()          // reopen on this track, at this spot
@@ -856,6 +932,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .separator(),
             { let i = item("Hotkeys While Hovering", #selector(AppDelegate.toggleHoverHotkeys(_:))); i.target = self
               i.state = Prefs.hoverHotkeys ? .on : .off; hoverMenuItem = i; return i }(),
+            { let i = item("Default Video Player", #selector(AppDelegate.toggleDefaultPlayer(_:))); i.target = self; i.tag = 0; return i }(),
+            { let i = item("Default Music Player", #selector(AppDelegate.toggleDefaultPlayer(_:))); i.target = self; i.tag = 1; return i }(),
             .separator(),
             item("Hide Reel", #selector(NSApplication.hide(_:)), "h"),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),

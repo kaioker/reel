@@ -15,6 +15,9 @@ protocol PlaylistPanelDelegate: AnyObject {
     func panelNotice(_ text: String, symbol: String, sticky: Bool)
     /// Open the playlist (something was just added, so show where it went).
     func panelWantsToBeSeen()
+    /// What's playing when it isn't in any playlist (dropped on the video, opened from Finder): its title and how many loose items.
+    var looseInfo: (title: String, count: Int)? { get }
+    func panelAddLoose()
 }
 
 private let reorderType = NSPasteboard.PasteboardType("app.reel.track-rows")
@@ -187,6 +190,8 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private let emptyHint = NSTextField(wrappingLabelWithString: "Drop files, folders or links here,\npress ⌘V to paste links,\nor click + to choose files.\n\nClick a track to play it.\nDouble-click a title to rename it.")
     private let divider = NSBox()
     let dropHighlight: DropHighlight = { let d = DropHighlight(); d.dims = false; return d }()
+    /// Shown above the list while something that isn't in a playlist is playing, with an Add button.
+    private let looseBar = LooseBar()
     private var pendingReload = false
     private var resolving = 0
     var isBusy: Bool { resolving > 0 }
@@ -261,7 +266,9 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         transportBar.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.18).cgColor
         [prevBtn, playBtn, nextBtn, loopBtn, spinner, addBtn, exportBtn].forEach(transportBar.addSubview)
         setTransport(playing: false, loop: false, hasTrack: false)
-        [divider, nameField, switchBtn, countLabel, scroll, emptyHint, transportBar, dropHighlight].forEach(addSubview)
+        looseBar.isHidden = true
+        looseBar.button.target = self; looseBar.button.action = #selector(addLooseClicked)
+        [divider, nameField, switchBtn, countLabel, looseBar, scroll, emptyHint, transportBar, dropHighlight].forEach(addSubview)
         registerForDraggedTypes([.fileURL, .URL, .string])
         table.onDragExit = { [weak self] in self?.dropHighlight.hide() }
 
@@ -290,7 +297,13 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         nameField.frame = NSRect(x: 14, y: cy - 9, width: textW, height: 18)
         switchBtn.frame = NSRect(x: nameField.frame.maxX + 1, y: cy - 11, width: 22, height: 22)
         countLabel.frame = NSRect(x: 15, y: cy - 28, width: W - 30, height: 15)
-        let top = showCount ? cy - 32 : cy - 14
+        var top = showCount ? cy - 32 : cy - 14
+        if !looseBar.isHidden && H >= 170 {
+            looseBar.frame = NSRect(x: 8, y: top - 46, width: W - 16, height: 42)
+            top -= 50
+        } else {
+            looseBar.frame = .zero
+        }
 
         let barH: CGFloat = showBar ? 34 : 0
         transportBar.frame = NSRect(x: 0, y: 0, width: W, height: barH)
@@ -464,6 +477,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func refreshNowPlaying() {
+        refreshLoose()
         if let row = currentRow, isRowVisible(row) { followsCurrent = true }
         DispatchQueue.main.async { self.revealCurrent() }
         for r in 0..<table.numberOfRows {
@@ -475,6 +489,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         shownID = id
         Prefs.lastPlaylist = id.uuidString
         reloadAll()
+        refreshLoose()
         followsCurrent = true
         DispatchQueue.main.async { self.revealCurrent(animated: false) }
     }
@@ -768,6 +783,44 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         }
     }
 
+    // MARK: Loose items (playing, but not in a playlist)
+
+    func refreshLoose() {
+        let info = delegate?.looseInfo
+        let wasHidden = looseBar.isHidden
+        looseBar.isHidden = info == nil
+        if let info {
+            let name = Library.shared.playlist(shownID)?.name ?? "this playlist"
+            looseBar.set(title: info.count > 1 ? "\(info.title) + \(info.count - 1) more" : info.title,
+                         tip: "Add \(info.count == 1 ? "it" : "all \(info.count)") to “\(name)” — the one shown here")
+        }
+        if wasHidden != looseBar.isHidden { needsLayout = true }
+    }
+
+    @objc private func addLooseClicked() { delegate?.panelAddLoose() }
+    var debugLooseBar: LooseBar { looseBar }
+
+    /// Selects these tracks and scrolls to them (after they were added).
+    func reveal(trackIDs: [UUID]) {
+        let rows = IndexSet(tracks.enumerated().filter { trackIDs.contains($0.element.id) }.map(\.offset))
+        table.selectRowIndexes(rows, byExtendingSelection: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            guard let last = rows.last, let first = rows.first else { return }
+            self.table.scrollRowToVisible(last)
+            self.table.scrollRowToVisible(first)
+        }
+    }
+
+    /// Where something pasted with the pointer at this spot (window coordinates) would go: before the row
+    /// under the pointer (after it, in its lower half), the end of the list below the last row, nil outside the list.
+    func insertionRow(atWindowPoint wp: NSPoint) -> Int? {
+        guard !isHidden, scroll.frame.contains(convert(wp, from: nil)) else { return nil }
+        let tp = table.convert(wp, from: nil)
+        let r = table.row(at: tp)
+        guard r >= 0 else { return tracks.count }
+        return tp.y < table.rect(ofRow: r).midY ? r : r + 1      // the table is flipped: smaller y is higher
+    }
+
     // MARK: Drop highlight
 
     struct DropSummary { var detail: String; var isPlaylist: Bool }
@@ -871,6 +924,47 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         dropHighlight.hide()
         return acceptExternal(sender.draggingPasteboard, at: nil)
+    }
+}
+
+/// "Not in a playlist · <title>  [Add]" — sits above the list while a loose item plays.
+final class LooseBar: NSView {
+    private let caption = NSTextField(labelWithString: "Not in a playlist")
+    private let title = NSTextField(labelWithString: "")
+    let button = NSButton(title: "Add", target: nil, action: nil)
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = 9
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+        caption.font = .systemFont(ofSize: 10, weight: .medium)
+        caption.textColor = NSColor.white.withAlphaComponent(0.5)
+        title.font = .systemFont(ofSize: 12, weight: .semibold)
+        title.textColor = .white
+        title.lineBreakMode = .byTruncatingTail
+        button.controlSize = .small
+        button.bezelStyle = .push
+        button.font = .systemFont(ofSize: 11, weight: .medium)
+        [caption, title, button].forEach(addSubview)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    func set(title t: String, tip: String) {
+        title.stringValue = t
+        title.toolTip = t
+        button.toolTip = tip
+    }
+
+    override func layout() {
+        super.layout()
+        button.sizeToFit()
+        let bw = button.frame.width
+        button.frame = NSRect(x: bounds.width - bw - 6, y: (bounds.height - button.frame.height) / 2, width: bw, height: button.frame.height)
+        let tw = button.frame.minX - 10 - 6
+        caption.frame = NSRect(x: 10, y: bounds.height - 18, width: tw, height: 13)
+        title.frame = NSRect(x: 10, y: 6, width: tw, height: 17)
     }
 }
 

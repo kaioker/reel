@@ -76,6 +76,20 @@ cat > "$APP/Contents/Info.plist" <<PLIST
       <key>CFBundleTypeIconFile</key><string>ReelPlaylist</string>
     </dict>
   </array>
+  <key>UTImportedTypeDeclarations</key><array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>org.matroska.mkv</string>
+      <key>UTTypeDescription</key><string>Matroska video</string>
+      <key>UTTypeConformsTo</key><array><string>public.movie</string></array>
+      <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>mkv</string></array></dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>org.webmproject.webm</string>
+      <key>UTTypeDescription</key><string>WebM video</string>
+      <key>UTTypeConformsTo</key><array><string>public.movie</string></array>
+      <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>webm</string></array></dict>
+    </dict>
+  </array>
   <key>UTExportedTypeDeclarations</key><array>
     <dict>
       <key>UTTypeIdentifier</key><string>app.reel.reel-playlist</string>
@@ -92,6 +106,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 echo "Built Reel v$VER  →  $(pwd)/$APP"
+# Keep macOS from listing this build as another installed Reel (Open With, default apps, Spotlight)
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister
+"$LSREGISTER" -u "$PWD/$APP" 2>/dev/null || true
 if [[ "$1" == "--install" ]]; then
   rm -rf /Applications/Reel.app && cp -R "$APP" /Applications/ && echo "Installed to /Applications/Reel.app"
+  rm -rf "$APP"   # one copy only: the installed one
 fi

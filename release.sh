@@ -17,6 +17,7 @@ TAG="v$VER"
 OUT=".build/release-zip"
 rm -rf "$OUT" && mkdir -p "$OUT"
 ditto -c -k --keepParent Reel.app "$OUT/Reel.zip"
+rm -rf Reel.app   # the zip is what ships; don't leave a second copy of Reel lying around
 
 git add VERSION
 git commit -q -m "Release $TAG"

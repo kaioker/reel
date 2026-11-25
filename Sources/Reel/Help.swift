@@ -50,11 +50,12 @@ final class HelpWindow: NSObject {
             ("Bottom row", "⏮ ⏯ ⏭ 🔁 for what's playing (🔁 lights up when looping) · export · + add files"),
         ]),
         ("Adding media", [
-            ("Drop", "Files, folders or links onto the video or the playlist — the playlist opens and shows where they went"),
-            ("Hold a drag over the video", "The playlist opens so you can drop at a particular spot"),
+            ("Drop on the video", "Plays it now, without adding it to a playlist"),
+            ("Drop on the playlist", "Adds it right where you drop — dragging over the video opens the playlist so you can"),
+            ("Not in a playlist", "While something plays that isn't in one, the playlist shows it with an Add button (also in the video's right-click icons)"),
             ("YouTube playlist link", "Asks: all videos, a new playlist named after it, or just this video"),
             ("Opened from Finder", "Plays once, outside your playlists (no loop)"),
-            ("⌘V", "Paste links — every link on the clipboard is added"),
+            ("⌘V", "Pastes where the pointer is: a spot in the playlist adds it there, the video plays it now, elsewhere adds it to the end"),
             ("+  or  ⌘O", "Choose files"),
             ("Works with", "Video & audio files, direct links, HLS streams, YouTube videos and playlists, Bilibili"),
             ("WebM", "Plays too; transparent WebM is see-through, with glass behind it while the playlist or window buttons show"),
@@ -68,6 +69,7 @@ final class HelpWindow: NSObject {
         ("On launch", [
             ("", "Reel loads the first item of the playlist you used last, paused"),
             ("", "It checks GitHub for a newer version and offers to update (also: Reel → Check for Updates…)"),
+            ("Default player", "Reel → Default Video Player / Default Music Player makes double-clicked files open in Reel (macOS asks you to confirm each file type)"),
         ]),
     ]
 

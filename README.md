@@ -47,7 +47,12 @@ Most players want to be the main window. Reel is built to sit in a corner while 
 | **WebM, including transparent** | See-through video floats over your desktop, with glass behind it only while the playlist or window buttons show |
 | **Unusual formats** | Anything macOS can't decode plays through Reel's built-in FFmpeg decoder. No conversion and no extra installs. |
 
-Drop files, folders or links onto the video or the playlist, paste links with ⌘V, or choose files with ⌘O.
+Drop something on the video to play it right away, or on the playlist to add it at that spot. Dragging over the
+video opens the playlist so you can. ⌘V works the same way, going wherever the pointer is. Anything playing that isn't
+in a playlist gets an **Add** button, so you can keep it.
+
+Reel can also be your **default video and music player** (Reel → Default Video Player / Default Music Player), so
+double-clicking a file in Finder opens it in Reel.
 
 ## Playlists
 
@@ -70,6 +75,7 @@ Drop files, folders or links onto the video or the playlist, paste links with �
 | L · M · F | Loop track · mute · full screen |
 | Right-drag ← → / ↑ ↓ | Seek / volume (or two-finger swipe; mouse wheel is volume) |
 | Right-click | Quick menu: play, loop, on top, playlist, add, paste, full screen |
+| ⌘V | Paste links or files where the pointer is: into the playlist, or onto the video to play now |
 | ⌘P · ⌘T · ⌘0 | Playlist · always on top · actual size |
 | Headset, AirPods, ⏯ ⏭ ⏮ keys | Play / pause, next and previous track; Reel shows in Control Center's Now Playing |
 

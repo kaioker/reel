@@ -339,6 +339,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     func debugHoldFlash() { flash.debugHold() }
     func debugSeek(_ t: Double) { backend?.seek(to: t) }
     var debugInteraction: InteractionView { interaction }
+    var debugVideoArea: NSView { videoArea }
     var debugBackendName: String { backend.map { String(describing: type(of: $0)) } ?? "-" }
     var debugAudio: String { (backend as? FFBackend)?.debugAudioRendering ?? "-" }
     /// What the audio player is actually set to (AVPlayer gain), for REEL_VOLUME_TEST.
@@ -396,12 +397,14 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         interaction.onDoubleClick = { [weak self] in self?.window.toggleFullScreen(nil) }
         interaction.onDrop = { [weak self] pb in
             guard let self else { return false }
-            self.scheduleAutoClose(after: 2.5)   // pushed back again once the items actually land
-            return self.panel.acceptExternal(pb, at: nil, playFirst: true)
+            // On the video: play it now, without adding it to a playlist (the playlist is where you drop to keep it).
+            self.scheduleAutoClose(after: 0.4)
+            return self.playLoose(pb)
         }
         interaction.onDragEnter = { [weak self] pb in
             guard let self, let s = PlaylistPanel.dropSummary(pb) else { return false }
-            self.dropHighlight.show(title: s.isPlaylist ? "Drop to import playlist" : "Drop to play", detail: s.detail)
+            self.dropHighlight.show(title: s.isPlaylist ? "Drop to import playlist" : "Drop to play",
+                                    detail: s.isPlaylist ? s.detail : "\(s.detail) · drop on the playlist to add it")
             // Open the playlist so you can carry the drag over and drop it at a particular spot.
             self.openPanelTemporarily()
             return true
@@ -1411,16 +1414,104 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         let lists = files.filter { PlaylistFile.readNamed($0) != nil }
         if !lists.isEmpty { panel.add(files: lists, at: nil, playFirst: true) }
         let media = files.filter { !lists.contains($0) }
-        let tracks = MediaResolver.tracks(forFiles: media).map { t -> Track in var t = t; t.loop = false; return t }
+        let tracks = MediaResolver.tracks(forFiles: media)
+        if tracks.isEmpty {
+            if lists.isEmpty { toast.show(media.count == 1 ? "That isn't a video or audio file" : "No video or audio files in there",
+                                          symbol: "exclamationmark.triangle.fill", sticky: false) }
+            return
+        }
+        playLoose(tracks)
+    }
+
+    /// Plays these straight through once, outside any playlist ("loose"). The playlist shows an Add button for them.
+    private func playLoose(_ tracks: [Track]) {
+        let tracks = tracks.map { t -> Track in var t = t; t.loop = false; return t }
         guard let first = tracks.first else { return }
         transient = Playlist(id: transientID, name: "Opened files", tracks: tracks)
         play(playlist: transientID, track: first.id)
     }
 
-    @objc func paste(_ sender: Any?) {
-        if !panel.acceptExternal(NSPasteboard.general, at: nil, playFirst: isIdle) {
-            toast.show("Nothing to paste — copy a link or a file first", symbol: "doc.on.clipboard", sticky: false)
+    /// Dropped (or pasted) on the video: files and links play now, without being added to a playlist.
+    /// .reel playlist files still import as playlists. A YouTube link to a video in a playlist plays just that video.
+    @discardableResult
+    func playLoose(_ pb: NSPasteboard) -> Bool {
+        if let files = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !files.isEmpty {
+            open(files: files); return true
         }
+        var text = PlaylistPanel.pasteboardText(pb)
+        let n = MediaResolver.linkCount(in: text)
+        guard n > 0 else { return false }
+        for l in MediaResolver.youtubePlaylistLinks(in: text) {
+            if let v = l.video { text = text.replacingOccurrences(of: l.link, with: "https://youtu.be/\(v)") }
+        }
+        toast.show(n == 1 ? "Opening link…" : "Opening \(n) links…", symbol: "link", sticky: true)
+        Task { @MainActor in
+            let items = await MediaResolver.tracks(forText: text)
+            guard !items.isEmpty else {
+                self.toast.show(n == 1 ? "Couldn't find anything to play at that link" : "Couldn't find anything to play at those links",
+                                symbol: "exclamationmark.triangle.fill", sticky: false)
+                return
+            }
+            self.toast.show(items.count == 1 ? "Playing “\(items[0].displayName)”" : "Playing \(items.count) items", symbol: "play.circle.fill", sticky: false)
+            self.playLoose(items)
+        }
+        return true
+    }
+
+    /// ⌘V goes where the pointer is, like a drop: over a spot in the playlist it's added right there; over the
+    /// video it plays now without being added; anywhere else it's added to the end of the shown playlist.
+    @objc func paste(_ sender: Any?) {
+        let wp = window.mouseLocationOutsideOfEventStream
+        let overWindow = window.frame.contains(NSEvent.mouseLocation) && root.bounds.contains(root.convert(wp, from: nil))
+        paste(NSPasteboard.general, pointer: overWindow ? wp : nil)
+    }
+
+    /// `pointer`: where the mouse is, in window coordinates (nil when it isn't over Reel).
+    func paste(_ pb: NSPasteboard, pointer wp: NSPoint?) {
+        let ok: Bool
+        if let wp, panelOpen, let row = panel.insertionRow(atWindowPoint: wp) {
+            ok = panel.acceptExternal(pb, at: row, playFirst: isIdle)
+        } else if let wp, videoArea.frame.contains(root.convert(wp, from: nil)) {
+            ok = playLoose(pb)
+        } else {
+            ok = panel.acceptExternal(pb, at: nil, playFirst: isIdle)
+        }
+        if !ok { toast.show("Nothing to paste — copy a link or a file first", symbol: "doc.on.clipboard", sticky: false) }
+    }
+
+    // MARK: Loose items → a playlist
+
+    var looseInfo: (title: String, count: Int)? {
+        guard let c = current, c.playlist == transientID, let t = transient.tracks.first(where: { $0.id == c.track }) else { return nil }
+        return (t.displayName, transient.tracks.count)
+    }
+
+    /// Adds what's playing loose (and anything queued with it) to the end of the shown playlist. Playback carries on
+    /// uninterrupted; from now on it's a normal playlist track. Files already in that playlist aren't added twice.
+    func panelAddLoose() {
+        guard let c = current, c.playlist == transientID, !transient.tracks.isEmpty else { return }
+        let target = panel.shownID
+        let existing = Library.shared.playlist(target)?.tracks ?? []
+        var nowID = c.track, added: [UUID] = [], revealIDs: [UUID] = []
+        var items: [Track] = []
+        for var t in transient.tracks {
+            if let dup = existing.first(where: { $0.source == t.source && $0.kind == t.kind }) {
+                if t.id == c.track { nowID = dup.id }
+                revealIDs.append(dup.id); continue
+            }
+            t.loop = true                      // like anything added to a playlist
+            items.append(t); added.append(t.id); revealIDs.append(t.id)
+        }
+        Library.shared.mutate(target) { $0.tracks.append(contentsOf: items) }
+        current = (target, nowID)
+        Prefs.lastPlaylist = target.uuidString
+        transient = Playlist(id: transientID, name: "Opened files")
+        let name = Library.shared.playlist(target)?.name ?? "playlist"
+        let what = items.count == 1 ? "“\(items[0].displayName)”" : "\(items.count) items"
+        toast.show(items.isEmpty ? "Already in “\(name)”" : "Added \(what) to “\(name)”", symbol: "plus.circle.fill", sticky: false)
+        panel.refreshNowPlaying()
+        panel.reveal(trackIDs: revealIDs)
+        updateHUDState()
     }
     @objc func newPlaylist(_ sender: Any?) {
         if !panelOpen { setPanel(open: true) }
@@ -1473,6 +1564,13 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
             .init(symbol: Prefs.alwaysOnTop ? "pin.fill" : "pin", tip: "Always on top", on: Prefs.alwaysOnTop) { [weak self] _ in self?.togglePin() },
             .init(symbol: "sidebar.right", tip: panelOpen ? "Hide playlist" : "Show playlist", on: panelOpen) { [weak self] _ in self?.togglePlaylist() },
             .init(symbol: "plus", tip: "Add files…") { [weak self] _ in self?.openDocument(nil) },
+        ] + (looseInfo == nil ? [] : [
+            .init(symbol: "text.badge.plus", tip: "Add this to “\(Library.shared.playlist(panel.shownID)?.name ?? "the playlist")”") { [weak self] _ in
+                guard let self else { return }
+                self.panelAddLoose()
+                self.panelWantsToBeSeen()
+            },
+        ]) + [
             .init(symbol: "doc.on.clipboard", tip: "Paste links (⌘V)") { [weak self] _ in self?.paste(nil) },
             .init(symbol: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
                   tip: isFullscreen ? "Exit full screen" : "Full screen") { [weak self] _ in self?.window.toggleFullScreen(nil) },
