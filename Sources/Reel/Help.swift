@@ -56,7 +56,7 @@ final class HelpWindow: NSObject {
             ("Drop on the video", "Plays it now, without adding it to a playlist"),
             ("Drop on the playlist", "Adds it right where you drop — dragging over the video opens the playlist so you can"),
             ("Not in a playlist", "While something plays that isn't in one, the playlist shows it with an Add button (also in the video's right-click icons)"),
-            ("YouTube playlist link", "Asks: all videos, a new playlist named after it, or just this video"),
+            ("YouTube playlist link", "Asks: play without saving, save as a new playlist, add its videos to the one shown, or only this video"),
             ("Opened from Finder", "Plays once, outside your playlists (no loop)"),
             ("⌘V", "Pastes where the pointer is: a spot in the playlist adds it there, the video plays it now, elsewhere adds it to the end"),
             ("+  or  ⌘O", "Choose files"),
@@ -68,8 +68,8 @@ final class HelpWindow: NSObject {
         ("Sharing playlists", [
             ("Export button", "Saves the shown playlist as a .reel file (name, link, loop, skip per track)"),
             ("Where they live", "Each playlist is a .reel file in ~/Library/Application Support/Reel/Playlists"),
-            ("Open a .reel file", "Double-click it (or drop it on the video): it plays right away, marked Not saved — Save keeps it with your playlists"),
-            ("Import", "Drop a .reel file on the playlist, or pick it with + — it's added to your playlists"),
+            ("Open a .reel file", "Double-click it: it plays right away, marked Not saved — Save keeps it with your playlists"),
+            ("Drop a .reel file", "Asks, like a YouTube playlist: play without saving, save as a new playlist, or add its items to the one shown"),
         ]),
         ("On launch", [
             ("", "Reel loads the first item of the playlist you used last, paused"),

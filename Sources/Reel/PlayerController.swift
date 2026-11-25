@@ -404,8 +404,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         }
         interaction.onDragEnter = { [weak self] pb in
             guard let self, let s = PlaylistPanel.dropSummary(pb) else { return false }
-            self.dropHighlight.show(title: s.isPlaylist ? "Drop to play playlist" : "Drop to play",
-                                    detail: s.isPlaylist ? "\(s.detail) · drop on the playlist to keep it" : "\(s.detail) · drop on the playlist to add it")
+            self.dropHighlight.show(title: s.isPlaylist ? "Drop to open playlist" : "Drop to play",
+                                    detail: s.isPlaylist ? s.detail : "\(s.detail) · drop on the playlist to add it")
             // Open the playlist so you can carry the drag over and drop it at a particular spot.
             self.openPanelTemporarily()
             return true
@@ -1431,6 +1431,9 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         playLoose(tracks)
     }
 
+    func panelPlayOpened(_ id: UUID) { if let p = Library.shared.playlist(id) { play(openedPlaylist: p) } }
+    func panelPlayLoose(_ tracks: [Track]) { playLoose(tracks) }
+
     /// A playlist opened from a .reel file: plays its first track and shows it (with Save, if it isn't one of yours).
     private func play(openedPlaylist p: Playlist) {
         if let first = p.tracks.first(where: { $0.isPlayableInSequence }) {
@@ -1455,14 +1458,15 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     @discardableResult
     func playLoose(_ pb: NSPasteboard) -> Bool {
         if let files = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !files.isEmpty {
+            let lists = files.filter { PlaylistFile.readNamed($0) != nil }
+            if !lists.isEmpty { panel.askAboutPlaylist(.files(lists), at: nil, onVideo: true); return true }   // play / save / add?
             open(files: files); return true
         }
-        var text = PlaylistPanel.pasteboardText(pb)
+        let text = PlaylistPanel.pasteboardText(pb)
         let n = MediaResolver.linkCount(in: text)
         guard n > 0 else { return false }
-        for l in MediaResolver.youtubePlaylistLinks(in: text) {
-            if let v = l.video { text = text.replacingOccurrences(of: l.link, with: "https://youtu.be/\(v)") }
-        }
+        let ytLists = MediaResolver.youtubePlaylistLinks(in: text)
+        if !ytLists.isEmpty { panel.askAboutPlaylist(.youtube(text: text, links: ytLists), at: nil, onVideo: true); return true }
         toast.show(n == 1 ? "Opening link…" : "Opening \(n) links…", symbol: "link", sticky: true)
         Task { @MainActor in
             let items = await MediaResolver.tracks(forText: text)

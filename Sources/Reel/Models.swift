@@ -270,6 +270,16 @@ final class Library {
         return p
     }
 
+    /// A playlist to play without saving (a YouTube playlist you chose to just play).
+    func openUnsaved(named name: String, tracks: [Track]) -> Playlist {
+        var p = Playlist(name: name)
+        p.tracks = tracks
+        p.unsaved = true
+        playlists.append(p)
+        didChange()
+        return p
+    }
+
     /// Keeps an unsaved playlist: it's written to your playlists from now on (name made unique among them).
     func save(_ id: UUID) {
         guard let p = playlist(id), p.isUnsaved else { return }
@@ -282,7 +292,7 @@ final class Library {
     /// Adds an exported playlist as a new one (fresh ids, name made unique).
     func importPlaylist(named base: String, tracks: [Track]) -> Playlist {
         var name = base, n = 2
-        while playlists.contains(where: { $0.name == name }) { name = "\(base) \(n)"; n += 1 }
+        while playlists.contains(where: { !$0.isUnsaved && $0.name == name }) { name = "\(base) \(n)"; n += 1 }   // only your saved ones count
         var p = Playlist(name: name)
         p.tracks = tracks.map { var t = $0; t.id = UUID(); return t }
         playlists.append(p)

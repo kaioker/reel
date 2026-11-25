@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let u = ProcessInfo.processInfo.environment["REEL_PLAY"] {
             if u == "first" { player.nextTrack() } else { player.panel.add(text: u, at: nil, playFirst: true) }
         }
-        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST", "REEL_REELFILE_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
+        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST", "REEL_REELFILE_TEST", "REEL_ASK_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
         if !testing { NSApp.activate(ignoringOtherApps: true) }
         if let dir = ProcessInfo.processInfo.environment["REEL_DOT_TEST"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
@@ -439,6 +439,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         let editing = (0..<panel.table.numberOfRows).contains { (panel.table.view(atColumn: 0, row: $0, makeIfNecessary: false) as? TrackCell)?.title.editingName == true }
                         print("5. new playlist: \(state()) name being typed=\(editing)")
                         NSApp.terminate(nil) }),
+            ]
+            var t = 0.0
+            for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
+        }
+        if let file = ProcessInfo.processInfo.environment["REEL_ASK_TEST"] {
+            // Dropped .reel / YouTube playlist → the question; click each choice.
+            let pl = self.player!, panel = pl.panel, lib = Library.shared, w = pl.window, ia = pl.debugInteraction
+            let dir = ProcessInfo.processInfo.environment["REEL_ASK_DIR"] ?? "/tmp"
+            func pb(_ fill: (NSPasteboard) -> Void) -> NSPasteboard { let p = NSPasteboard(name: .init("reel-ask-\(getpid())-\(UUID().uuidString)")); p.clearContents(); fill(p); return p }
+            let reel = pb { $0.writeObjects([URL(fileURLWithPath: file) as NSURL]) }
+            func buttons() -> [NSButton] {
+                func all(_ v: NSView) -> [NSButton] { v.subviews.flatMap { ($0 as? NSButton).map { [$0] } ?? all($0) } }
+                return w.attachedSheet.flatMap { $0.contentView.map(all) } ?? []
+            }
+            func ask() -> String {
+                let texts: [String] = { func t(_ v: NSView) -> [String] { v.subviews.flatMap { ($0 as? NSTextField).map { [$0.stringValue] } ?? t($0) } }
+                    return w.attachedSheet?.contentView.map(t) ?? [] }().filter { !$0.isEmpty }
+                return "asks \(texts) buttons \(buttons().map(\.title).filter { !$0.isEmpty })"
+            }
+            func click(_ prefix: String) { buttons().first { $0.title.hasPrefix(prefix) }?.performClick(nil) }
+            func snap(_ name: String) {
+                let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+                p.arguments = ["-x", "-o", "-l\(w.windowNumber)", dir + "/" + name + ".png"]; try? p.run(); p.waitUntilExit()
+            }
+            func state() -> String {
+                let playing = pl.nowPlayingTrackID.flatMap { id in lib.playlists.flatMap(\.tracks).first { $0.id == id }?.displayName } ?? "-"
+                return "playing=\(playing) shown='\(lib.playlist(panel.shownID)?.name ?? "?")' playlists=\(lib.playlists.map { $0.name + ($0.isUnsaved ? "*" : "") + "(\($0.tracks.count))" })"
+            }
+            let yt = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG"
+            let steps: [(Double, () -> Void)] = [
+                (1.0, { _ = ia.onDrop?(reel); print("1. .reel dropped on the video: \(ask())") }),
+                (0.6, { snap("ask-reel"); click("Play Without"); print("   → Play Without Saving: \(state())") }),
+                (1.0, { pl.setPanel(open: true); panel.show(playlist: lib.playlists[0].id); panel.acceptExternal(reel, at: 1); print("2. .reel dropped on row 2 of the playlist: \(ask())") }),
+                (0.6, { click("Add Its Items"); print("   → Add: shown tracks \(panel.tracks.map(\.displayName))") }),
+                (1.0, { panel.acceptExternal(reel, at: nil); click("Save as"); print("3. → Save as a New Playlist: \(state())") }),
+                (1.0, { panel.add(text: yt, at: nil); print("4. YouTube playlist link pasted: \(ask())") }),
+                (0.6, { snap("ask-youtube"); click("Cancel"); print("   → Cancel: sheet gone=\(w.attachedSheet == nil)"); NSApp.terminate(nil) }),
             ]
             var t = 0.0
             for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }

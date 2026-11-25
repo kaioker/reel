@@ -20,6 +20,10 @@ protocol PlaylistPanelDelegate: AnyObject {
     /// What's playing when it isn't in any playlist (dropped on the video, opened from Finder): its title and how many loose items.
     var looseInfo: (title: String, count: Int)? { get }
     func panelAddLoose()
+    /// Play a playlist opened without saving (it's in the library, marked unsaved) and show it.
+    func panelPlayOpened(_ id: UUID)
+    /// Play these now, outside any playlist.
+    func panelPlayLoose(_ tracks: [Track])
 }
 
 private let reorderType = NSPasteboard.PasteboardType("app.reel.track-rows")
@@ -854,34 +858,108 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     // MARK: Adding
 
     /// Adds resolved items to the shown playlist; autoplays the first one if nothing is playing.
-    /// A YouTube *playlist* link first asks: just this video, all its videos, or a new playlist.
+    /// A YouTube *playlist* link first asks what to do with it (see `askAboutPlaylist`).
     func add(text: String, at index: Int?, playFirst: Bool = false) {
         let ytLists = MediaResolver.youtubePlaylistLinks(in: text)
-        guard let first = ytLists.first, let window else { addResolved(text: text, into: shownID, at: index, playFirst: playFirst); return }
+        guard !ytLists.isEmpty else { addResolved(text: text, into: shownID, at: index, playFirst: playFirst); return }
+        askAboutPlaylist(.youtube(text: text, links: ytLists), at: index, onVideo: false)
+    }
+
+    /// A playlist arriving by drop, paste or + : a .reel file, or a YouTube playlist link.
+    enum IncomingPlaylist {
+        case files([URL])
+        case youtube(text: String, links: [(link: String, video: String?, list: String)])
+    }
+
+    /// Asks what to do with a playlist that was dropped / pasted / chosen. `onVideo`: it was dropped on the video
+    /// (so whatever you pick also starts playing), rather than on the playlist (where it plays only if nothing is).
+    func askAboutPlaylist(_ incoming: IncomingPlaylist, at index: Int?, onVideo: Bool) {
+        guard let window else { return }
+        let here = Library.shared.playlist(shownID)
         let a = NSAlert()
-        a.messageText = "That's a YouTube playlist"
-        a.informativeText = "How should Reel add it?"
-        a.addButton(withTitle: "All Videos")
-        a.addButton(withTitle: "New Playlist")
-        if first.video != nil { a.addButton(withTitle: "Just This Video") }
-        a.addButton(withTitle: "Cancel")
-        a.beginSheetModal(for: window) { r in
-            switch r {
-            case .alertFirstButtonReturn:
-                self.addResolved(text: text, into: self.shownID, at: index, playFirst: playFirst)
-            case .alertSecondButtonReturn:
+        var actions: [(String, () -> Void)] = []
+        switch incoming {
+        case .files(let urls):
+            let read = urls.compactMap { u in PlaylistFile.readNamed(u).map { (u, $0.0, $0.1) } }
+            guard let first = read.first else { return }
+            let count = read.map(\.2.count).reduce(0, +)
+            a.messageText = read.count == 1 ? "“\(first.1)” is a Reel playlist" : "These are \(read.count) Reel playlists"
+            a.informativeText = "\(count) item\(count == 1 ? "" : "s"). What would you like to do with \(read.count == 1 ? "it" : "them")?"
+            actions.append(("Play Without Saving", {
+                let opened = read.compactMap { Library.shared.open(file: $0.0) }
+                if let p = opened.first { self.delegate?.panelPlayOpened(p.id) }
+            }))
+            actions.append((read.count == 1 ? "Save as a New Playlist" : "Save as New Playlists", {
+                var last: Playlist?
+                for r in read { last = Library.shared.importPlaylist(named: r.1, tracks: r.2) }
+                guard let p = last else { return }
+                self.show(playlist: p.id, animated: true)
+                self.delegate?.panelWantsToBeSeen()
+                self.delegate?.panelNotice("Saved “\(p.name)” to your playlists", symbol: "square.and.arrow.down.fill", sticky: false)
+                if (onVideo || (self.delegate?.isIdle ?? false)), let t = p.tracks.first(where: { $0.isPlayableInSequence }) {
+                    self.delegate?.panelPlay(playlist: p.id, track: t.id)
+                }
+            }))
+            if let here {
+                actions.append(("Add Its Items to “\(here.name)”", {
+                    self.insert(read.flatMap { $0.2.map { var t = $0; t.id = UUID(); return t } }, into: here.id, at: index, playFirst: onVideo)
+                }))
+            }
+        case .youtube(let text, let links):
+            let first = links[0]
+            a.messageText = "That's a YouTube playlist"
+            a.informativeText = "What would you like to do with it?"
+            actions.append(("Play Without Saving", {
+                self.resolve(text) { items in
+                    Task { @MainActor in
+                        let title = await MediaResolver.youtubePlaylistTitle(first.list) ?? "YouTube playlist"
+                        let p = Library.shared.openUnsaved(named: title, tracks: items)
+                        self.delegate?.panelPlayOpened(p.id)
+                    }
+                }
+            }))
+            actions.append(("Save as a New Playlist", {
                 Task { @MainActor in
                     let title = await MediaResolver.youtubePlaylistTitle(first.list) ?? "YouTube playlist"
                     let p = Library.shared.addPlaylist(named: title)
-                    self.show(playlist: p.id)
-                    self.addResolved(text: text, into: p.id, at: nil, playFirst: playFirst)
+                    self.show(playlist: p.id, animated: true)
+                    self.addResolved(text: text, into: p.id, at: nil, playFirst: onVideo)
                 }
-            case .alertThirdButtonReturn where first.video != nil:
-                var single = text
-                for l in ytLists { if let v = l.video { single = single.replacingOccurrences(of: l.link, with: "https://youtu.be/\(v)") } }
-                self.addResolved(text: single, into: self.shownID, at: index, playFirst: playFirst)
-            default: break
+            }))
+            if let here {
+                actions.append(("Add Its Videos to “\(here.name)”", { self.addResolved(text: text, into: here.id, at: index, playFirst: onVideo) }))
             }
+            if first.video != nil {
+                var single = text
+                for l in links { if let v = l.video { single = single.replacingOccurrences(of: l.link, with: "https://youtu.be/\(v)") } }
+                actions.append(("Only This Video", {
+                    if onVideo { self.resolve(single) { self.delegate?.panelPlayLoose($0) } }
+                    else { self.addResolved(text: single, into: self.shownID, at: index, playFirst: false) }
+                }))
+            }
+        }
+        for (title, _) in actions { a.addButton(withTitle: title) }
+        a.addButton(withTitle: "Cancel")
+        a.beginSheetModal(for: window) { r in
+            let i = r.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+            if i >= 0, i < actions.count { actions[i].1() }
+        }
+    }
+
+    /// Looks up the links in `text` (with the busy spinner and messages), then hands over what it found.
+    private func resolve(_ text: String, then: @escaping ([Track]) -> Void) {
+        let n = MediaResolver.linkCount(in: text)
+        setBusy(+1)
+        delegate?.panelNotice("Opening…", symbol: "link", sticky: true)
+        Task { @MainActor in
+            let items = await MediaResolver.tracks(forText: text)
+            self.setBusy(-1)
+            guard !items.isEmpty else {
+                self.delegate?.panelNotice(n == 1 ? "Couldn't find anything to play at that link" : "Couldn't find anything to play at those links",
+                                           symbol: "exclamationmark.triangle.fill", sticky: false)
+                return
+            }
+            then(items)
         }
     }
 
@@ -903,19 +981,11 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func add(files: [URL], at index: Int?, playFirst: Bool = false) {
-        // Exported playlists (.json) import as new playlists; everything else is media.
-        var media: [URL] = []
-        var imported: Playlist?
-        for f in files {
-            if let (name, ts) = PlaylistFile.readNamed(f) { imported = Library.shared.importPlaylist(named: name, tracks: ts) } else { media.append(f) }
-        }
-        if let p = imported {
-            show(playlist: p.id)
-            delegate?.panelWantsToBeSeen()
-            delegate?.panelNotice("Imported “\(p.name)” · \(p.tracks.count) item\(p.tracks.count == 1 ? "" : "s")", symbol: "square.and.arrow.down.fill", sticky: false)
-            if (playFirst || (delegate?.isIdle ?? false)) && media.isEmpty, let first = p.tracks.first {
-                delegate?.panelPlay(playlist: p.id, track: first.id)
-            }
+        // Playlist files (.reel, older .json) ask what to do; everything else is media.
+        let lists = files.filter { PlaylistFile.readNamed($0) != nil }
+        let media = files.filter { !lists.contains($0) }
+        if !lists.isEmpty {
+            askAboutPlaylist(.files(lists), at: index, onVideo: false)
             if media.isEmpty { return }
         }
         let items = MediaResolver.tracks(forFiles: media)
@@ -1035,7 +1105,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     func showDropHighlight(_ pb: NSPasteboard) -> Bool {
         guard let s = Self.dropSummary(pb) else { dropHighlight.hide(); return false }
         let name = Library.shared.playlist(shownID)?.name ?? "playlist"
-        dropHighlight.show(title: s.isPlaylist ? "Import as a new playlist" : "Add to “\(name)”", detail: s.detail)
+        dropHighlight.show(title: s.isPlaylist ? "Drop to open playlist" : "Add to “\(name)”", detail: s.detail)
         return true
     }
 

@@ -42,7 +42,7 @@ Most players want to be the main window. Reel is built to sit in a corner while 
 |---|---|
 | **Files** | Video and audio files, whole folders. Audio-only tracks show a waveform. |
 | **Links** | Direct video links and HLS streams |
-| **YouTube** | Videos and whole playlists (Reel asks whether to import one video, all of them, or a new playlist) |
+| **YouTube** | Videos and whole playlists (Reel asks: play without saving, save as a new playlist, add the videos to the one you're viewing, or only this video) |
 | **Bilibili** | Videos |
 | **WebM, including transparent** | See-through video floats over your desktop, with glass behind it only while the playlist or window buttons show |
 | **Unusual formats** | Anything macOS can't decode plays through Reel's built-in FFmpeg decoder. No conversion and no extra installs. |
