@@ -1,5 +1,4 @@
 import AppKit
-import AVKit
 import UniformTypeIdentifiers
 
 protocol PlaylistPanelDelegate: AnyObject {
@@ -14,8 +13,8 @@ protocol PlaylistPanelDelegate: AnyObject {
     func panelNext()
     func panelLoopCurrent()
     func panelToggleShuffle()
-    /// The player AirPlay sends to a TV or speakers.
-    var airPlayPlayer: AVPlayer? { get }
+    /// The track actions shared with the video's right-click menu.
+    func trackMenuItems(_ t: Track, playlist: UUID, selection: [Track]) -> [IconMenu.Item]
     func panelOpenFiles()
     /// A short message on the video ("Added 3 items"). Sticky ones stay until replaced.
     func panelNotice(_ text: String, symbol: String, sticky: Bool)
@@ -218,14 +217,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, N
     private lazy var nextBtn = IconButton("forward.end.fill", size: 12, tip: "Next track (↓)", target: self, action: #selector(tNext))
     private lazy var loopBtn = IconButton("repeat.1", size: 13, tip: "Loop this track (L)", target: self, action: #selector(tLoop))
     private lazy var shuffleBtn = IconButton("shuffle", size: 13, tip: "Shuffle (S)", target: self, action: #selector(tShuffle))
-    /// AirPlay to a TV or speakers.
-    private let airPlay: AVRoutePickerView = {
-        let r = AVRoutePickerView()
-        r.isRoutePickerButtonBordered = false
-        r.setRoutePickerButtonColor(NSColor.white.withAlphaComponent(0.85), for: .normal)
-        r.toolTip = "AirPlay to a TV or speakers"
-        return r
-    }()
+
     private lazy var addBtn = IconButton("plus", size: 15, tip: "Add files… (paste links with ⌘V)", target: self, action: #selector(tAdd))
     private let transportBar = NSView()
     private let spinner = NSProgressIndicator()
@@ -333,7 +325,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, N
 
         transportBar.wantsLayer = true
         transportBar.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.18).cgColor
-        [prevBtn, playBtn, nextBtn, loopBtn, shuffleBtn, airPlay, spinner, addBtn].forEach(transportBar.addSubview)
+        [prevBtn, playBtn, nextBtn, loopBtn, shuffleBtn, spinner, addBtn].forEach(transportBar.addSubview)
         setTransport(playing: false, loop: false, hasTrack: false)
         looseBar.isHidden = true
         looseBar.button.target = self; looseBar.button.action = #selector(addLooseClicked)
@@ -391,10 +383,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, N
         loopBtn.frame = NSRect(x: 102, y: by, width: 26, height: bh)
         shuffleBtn.frame = NSRect(x: 130, y: by, width: 26, height: bh)
         addBtn.frame = NSRect(x: W - 36, y: by, width: 26, height: bh)
-        airPlay.frame = NSRect(x: W - 64, y: by, width: 26, height: bh)
-        airPlay.isHidden = W < 220
-        if airPlay.player == nil { airPlay.player = delegate?.airPlayPlayer }
-        spinner.frame = NSRect(x: W - 88, y: by + 4, width: 16, height: 16)
+        spinner.frame = NSRect(x: W - 62, y: by + 4, width: 16, height: 16)
 
         listHost.frame = NSRect(x: 0, y: barH, width: W, height: max(0, top - barH))
         let pw = listHost.bounds.width, ph = listHost.bounds.height
@@ -425,8 +414,13 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, N
         dropHighlight.labelBottomInset = barH
     }
 
+    /// A click-started slide is running (layout passes must leave it alone).
+    private var sliding = false
+
     /// Slides the panes and cross-fades the title row to `progress`.
-    private func applyProgress(animated: Bool = false) {
+    /// `animated`: slide there (title click). `interactive`: follow a swipe exactly (cancels a running slide).
+    /// Neither (an ordinary layout pass): keep the panes where they belong without disturbing a running slide.
+    private func applyProgress(animated: Bool = false, interactive: Bool = false) {
         let p = max(0, min(1, progress))
         let pw = listHost.bounds.width
         let showHeader = bounds.height >= 60, showCount = bounds.height >= 170
@@ -437,7 +431,8 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, N
         nameField.onClick = p < 0.5 ? { [weak self] in self?.toggleMode() } : nil
         listsTitle.onClick = p >= 0.5 ? { [weak self] in self?.toggleMode() } : nil
         // while it moves both panes show; at rest only the one in view does (so clicks reach the right list)
-        let moving = animated || (p > 0 && p < 1)
+        if interactive && sliding { sliding = false }
+        let moving = animated || sliding || (p > 0 && p < 1)
         playlistsPane.isHidden = !moving && p == 0
         tracksPane.isHidden = !moving && p == 1
         let duration = 0.32
@@ -452,22 +447,24 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, N
                 let a = CABasicAnimation(keyPath: "transform.translation.x")
                 a.fromValue = from; a.toValue = tx; a.duration = duration; a.timingFunction = timing
                 layer.add(a, forKey: "slide")
-            } else {
+            } else if interactive {
                 layer.removeAnimation(forKey: "slide")
             }
         }
         if animated {
+            sliding = true
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = duration
                 ctx.timingFunction = timing
                 [nameField, countLabel, searchBtn, sortBtn].forEach { $0.animator().alphaValue = 1 - p }
                 [listsTitle, listsCount].forEach { $0.animator().alphaValue = p }
             }, completionHandler: { [weak self] in
-                guard let self, self.progress == p else { return }   // a newer move took over
+                guard let self, self.progress == p, self.sliding else { return }   // a newer move took over
+                self.sliding = false
                 self.playlistsPane.isHidden = p == 0
                 self.tracksPane.isHidden = p == 1
             })
-        } else {
+        } else if !sliding {
             [nameField, countLabel, searchBtn, sortBtn].forEach { $0.alphaValue = 1 - p }
             [listsTitle, listsCount].forEach { $0.alphaValue = p }
         }
@@ -505,7 +502,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, N
                           dampenAmountThresholdMin: atLists ? -1 : 0, max: atLists ? 0 : 1) { [weak self] amount, phase, complete, _ in
             guard let self else { return }
             self.progress = max(0, min(1, self.swipeStart + amount))
-            self.applyProgress()
+            self.applyProgress(interactive: true)
             if complete {
                 self.swipeTracking = false
                 let target: Mode = self.progress > 0.5 ? .playlists : .tracks
@@ -518,7 +515,9 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, N
     }
 
     /// Tests: freeze the slide part-way (as a swipe would), to see the cross-fade.
-    func debugSetProgress(_ p: CGFloat) { progress = p; applyProgress() }
+    func debugSetProgress(_ p: CGFloat) { progress = p; applyProgress(interactive: true) }
+    /// Tests: is a pane mid-slide right now (its on-screen position between rest positions)?
+    var debugSlideOffset: CGFloat { tracksPane.layer?.presentation()?.affineTransform().tx ?? -1 }
 
     override func scrollWheel(with event: NSEvent) {
         if trackSwipe(event) { return }
@@ -876,32 +875,20 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, N
         guard row >= 0, row < tracks.count else { return }
         if !table.selectedRowIndexes.contains(row) { table.selectRowIndexes([row], byExtendingSelection: false) }
         let t = tracks[row], pid = shownID
-        let many = table.selectedRowIndexes.count
-        var items: [IconMenu.Item] = [
-            .init(symbol: "play.fill", tip: "Play") { [weak self] _ in self?.delegate?.panelPlay(playlist: pid, track: t.id) },
-            .init(symbol: "text.line.first.and.arrowtriangle.forward", tip: many > 1 ? "Play these next" : "Play next") { [weak self] _ in
-                self?.playNext() },
-            .init(symbol: "pencil", tip: "Rename") { [weak self] _ in self?.beginRename(trackID: t.id) },
-        ]
+        let picked = table.selectedRowIndexes.compactMap { $0 < tracks.count ? tracks[$0] : nil }
+        let many = picked.count
+        // the same track actions as the video's right-click, then the playlist's own
+        var items = delegate?.trackMenuItems(t, playlist: pid, selection: picked) ?? []
+        items.append(.divider)
+        items.append(.init(symbol: "text.line.first.and.arrowtriangle.forward", tip: many > 1 ? "Play these next" : "Play next") { [weak self] _ in
+            self?.playNext() })
+        if Library.shared.playlists.contains(where: { $0.id != pid }) {
+            items.append(.init(symbol: "rectangle.stack.badge.plus", tip: "Copy to another playlist") { [weak self] sender in
+                self?.showCopyToMenu(from: sender) })
+        }
         if t.customName != nil {
             items.append(.init(symbol: "arrow.uturn.backward", tip: "Reset name to “\(t.autoTitle)”") { _ in
                 Library.shared.mutateTrack(t.id) { $0.customName = nil } })
-        }
-        let picked = table.selectedRowIndexes.compactMap { $0 < tracks.count ? tracks[$0] : nil }
-        let strike = !t.isSkipped
-        items.append(.init(symbol: "strikethrough", tip: strike ? "Skip (strike through) — stays in the playlist, click to play it anyway" : "Stop skipping", on: t.isSkipped) { _ in
-            for x in picked { Library.shared.mutateTrack(x.id) { $0.skip = strike ? true : nil } } })
-        if t.kind == .local {
-            items.append(.init(symbol: "folder", tip: "Show in Finder") { _ in if let u = t.url { NSWorkspace.shared.activateFileViewerSelecting([u]) } })
-        } else {
-            items.append(.init(symbol: "link", tip: "Copy link") { _ in
-                guard let u = t.url else { return }
-                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(u.absoluteString, forType: .string) })
-        }
-        let others = Library.shared.playlists.filter { $0.id != pid }
-        if !others.isEmpty {
-            items.append(.init(symbol: "rectangle.stack.badge.plus", tip: "Copy to another playlist") { [weak self] sender in
-                self?.showCopyToMenu(from: sender) })
         }
         items.append(.init(symbol: "trash", tip: many > 1 ? "Remove \(many) items" : "Remove", destructive: true) { [weak self] _ in
             self?.removeSelected() })
@@ -931,7 +918,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, N
         }
     }
 
-    private func beginRename(trackID: UUID) {
+    func beginRename(trackID: UUID) {
         guard let row = tracks.firstIndex(where: { $0.id == trackID }) else { return }
         table.scrollRowToVisible(row)
         (table.view(atColumn: 0, row: row, makeIfNecessary: true) as? TrackCell)?.title.beginRename()
@@ -1159,7 +1146,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, N
     @objc private func searchClicked() { searching ? endSearch() : beginSearch() }
     func debugSearch(_ text: String) { searchField.stringValue = text; controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField)) }
     var debugCount: String { countLabel.stringValue }
-    var debugAirPlayReady: Bool { airPlay.player != nil }
+
 
     func beginSearch() {
         if mode == .playlists { show(playlist: shownID, animated: true) }

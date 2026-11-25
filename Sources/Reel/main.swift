@@ -47,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let u = ProcessInfo.processInfo.environment["REEL_PLAY"] {
             if u == "first" { player.nextTrack() } else { player.panel.add(text: u, at: nil, playFirst: true) }
         }
-        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST", "REEL_REELFILE_TEST", "REEL_ASK_TEST", "REEL_EXTRAS_TEST", "REEL_SUBPREF_TEST", "REEL_HW_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
+        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST", "REEL_REELFILE_TEST", "REEL_ASK_TEST", "REEL_EXTRAS_TEST", "REEL_SUBPREF_TEST", "REEL_HW_TEST", "REEL_MENUS_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
         if !testing { NSApp.activate(ignoringOtherApps: true) }
         if let dir = ProcessInfo.processInfo.environment["REEL_DOT_TEST"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
@@ -443,6 +443,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             var tt = 0.0
             for (d, f) in steps { tt += d; DispatchQueue.main.asyncAfter(deadline: .now() + tt) { f(); fflush(stdout) } }
         }
+        if let dir = ProcessInfo.processInfo.environment["REEL_MENUS_TEST"] {
+            // Opens the video's right-click menu, then a track's, and screenshots each.
+            let pl = self.player!, p = Library.shared.playlists[0]
+            func snapMenu(_ name: String) {
+                guard let n = IconMenu.shared.debugWindowNumber else { print("no menu"); return }
+                let t = Process(); t.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+                t.arguments = ["-x", "-o", "-l\(n)", dir + "/" + name + ".png"]; try? t.run(); t.waitUntilExit()
+            }
+            print("tooltip delay: \(UserDefaults.standard.integer(forKey: "NSInitialToolTipDelay")) ms")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { pl.panelPlay(playlist: p.id, track: p.tracks[0].id); pl.setPanel(open: true) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                let e = NSEvent.mouseEvent(with: .rightMouseUp, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: pl.window.windowNumber,
+                                           context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+                pl.debugInteraction.onContextMenu?(e) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { snapMenu("menu-video"); IconMenu.shared.close()
+                let e = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: pl.window.windowNumber,
+                                           context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+                pl.panel.showContextMenu(row: 1, event: e) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { snapMenu("menu-track"); fflush(stdout); NSApp.terminate(nil) }
+        }
         if ProcessInfo.processInfo.environment["REEL_HW_TEST"] != nil {
             // Plays the first track; reports which engine and whether the video is decoded on the Mac's media engine.
             let pl = self.player!, p = Library.shared.playlists[0]
@@ -524,7 +544,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             at(0.5) { say("9. search 'sub': \(panel.tracks.map(\.displayName)), header '\(panel.debugCount)'")
                 panel.endSearch(); panel.sortShown(.titleAZ); say("   sorted A→Z: \(panel.allTracks.map(\.displayName))")
                 pl.window.undoManager?.undo(); say("   ⌘Z: \(panel.allTracks.map(\.displayName))") }
-            at(0.5) { say("10. AirPlay button wired to the player: \(panel.debugAirPlayReady)"); NSApp.terminate(nil) }
+            at(0.5) {
+                let t0 = pl.currentTrack!, video = pl.trackMenuItems(t0, playlist: p.id, selection: [t0])
+                let other = p.tracks.first { $0.id != t0.id }!, row = pl.trackMenuItems(other, playlist: p.id, selection: [other])
+                func names(_ i: [IconMenu.Item]) -> [String] { i.map { $0.isAirPlay ? "AirPlay" : $0.symbol } }
+                say("10. shared track actions — playing track: \(names(video))")
+                say("    another track: \(names(row)) (AirPlay wired to the player: \(video.last?.airPlayPlayer != nil))")
+                NSApp.terminate(nil) }
             var tt = 0.0
             for (d, f) in steps { tt += d; DispatchQueue.main.asyncAfter(deadline: .now() + tt) { f() } }
         }
@@ -553,7 +579,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         print("   click on the title lands on: \(hit === f ? "the playlist name" : hit.map { String(describing: type(of: $0)) } ?? "nothing")")
                         if let e = NSEvent.mouseEvent(with: .leftMouseDown, location: at, modifierFlags: [], timestamp: 0, windowNumber: w.windowNumber,
                                                       context: nil, eventNumber: 0, clickCount: 1, pressure: 1) { hit?.mouseDown(with: e) } }),
-                (0.6, { snap("3-playlists"); print("2. clicked the title: \(state())")
+                (0.1, { print("   0.1 s into the slide: the track list is at x=\(Int(panel.debugSlideOffset)) (0 = in place, \(Int(panel.bounds.width)) = slid away)") }),
+                (0.5, { snap("3-playlists"); print("2. clicked the title: \(state())")
                         let f = panel.nameField, at = f.convert(NSPoint(x: 8, y: f.bounds.midY), to: nil)
                         let frameView = w.contentView!.superview!
                         let hit = frameView.hitTest(frameView.convert(at, from: nil))
@@ -1268,6 +1295,12 @@ if let u = ProcessInfo.processInfo.environment["REEL_RESOLVE"] {
 VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_VP9)
 if #available(macOS 14.0, *) { VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_AV1) }
 
+// A test run (REEL_…_TEST) that never finishes quits by itself instead of sitting open.
+if ProcessInfo.processInfo.environment.keys.contains(where: { $0.hasPrefix("REEL_") && $0.hasSuffix("_TEST") }) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + 90) { print("test timed out after 90 s"); fflush(stdout); exit(3) }
+}
+// Tooltips show after a short pause rather than macOS's default (about a second and a half).
+UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 350])
 let app = ReelApplication.shared   // right-clicks reach the player even while Reel is in the background
 let delegate = AppDelegate()
 app.delegate = delegate

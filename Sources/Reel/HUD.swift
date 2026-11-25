@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import AVKit
 
 func symbol(_ name: String, _ size: CGFloat = 14, _ weight: NSFont.Weight = .medium) -> NSImage? {
     NSImage(systemSymbolName: name, accessibilityDescription: name)?
@@ -246,24 +247,37 @@ final class WaveformView: NSView {
 
 /// Right-click menu as a row of icons (left → right) on a glass capsule.
 /// A non-activating panel, so it works whether or not Reel is focused.
-final class IconMenu: NSObject {
+final class IconMenu: NSObject, AVRoutePickerViewDelegate {
     struct Item {
         var symbol: String
         var tip: String
         var on: Bool = false          // shows highlighted (e.g. loop is on)
         var destructive: Bool = false
+        /// A thin line between groups of icons.
+        var isDivider = false
+        /// The system AirPlay button (for this player) in this slot.
+        var isAirPlay = false
+        var airPlayPlayer: AVPlayer? = nil
         var action: (NSView) -> Void  // receives the clicked icon (for follow-up popups)
+
+        static var divider: Item { Item(symbol: "", tip: "", isDivider: true) { _ in } }
+        static func airPlay(_ player: AVPlayer?) -> Item {
+            Item(symbol: "airplayvideo", tip: "AirPlay to a TV or speakers", isAirPlay: true, airPlayPlayer: player) { _ in }
+        }
     }
+    /// The AirPlay list is open: the menu stays until it closes.
+    private var airPlayOpen = false
 
     static let shared = IconMenu()
     private var panel: NSPanel?
     private var monitors: [Any] = []
     private(set) var isShowing = false
+    var debugWindowNumber: Int? { panel?.windowNumber }
 
     func show(_ items: [Item], at screenPoint: NSPoint) {
         close()
-        let size: CGFloat = 30, pad: CGFloat = 6
-        let w = CGFloat(items.count) * size + pad * 2, h = size + pad * 2
+        let size: CGFloat = 30, pad: CGFloat = 6, gap: CGFloat = 11
+        let w = items.reduce(0) { $0 + ($1.isDivider ? gap : size) } + pad * 2, h = size + pad * 2
         let screen = NSScreen.screens.first { $0.frame.contains(screenPoint) }?.visibleFrame ?? NSScreen.main!.visibleFrame
         var origin = NSPoint(x: screenPoint.x - w / 2, y: screenPoint.y + 10)   // just above the pointer
         origin.x = min(max(origin.x, screen.minX + 4), screen.maxX - w - 4)
@@ -287,13 +301,34 @@ final class IconMenu: NSObject {
         bg.frame = NSRect(x: 0, y: 0, width: w, height: h)
         let root = NSView(frame: bg.frame)
         root.addSubview(bg)
-        for (i, item) in items.enumerated() {
+        var x = pad
+        for item in items {
+            if item.isDivider {
+                let line = NSView(frame: NSRect(x: x + gap / 2 - 0.5, y: pad + 6, width: 1, height: size - 12))
+                line.wantsLayer = true
+                line.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.22).cgColor
+                root.addSubview(line)
+                x += gap
+                continue
+            }
+            if item.isAirPlay {
+                let picker = AVRoutePickerView(frame: NSRect(x: x, y: pad, width: size, height: size))
+                picker.player = item.airPlayPlayer
+                picker.isRoutePickerButtonBordered = false
+                picker.setRoutePickerButtonColor(.white, for: .normal)
+                picker.toolTip = item.tip
+                picker.delegate = self
+                root.addSubview(picker)
+                x += size
+                continue
+            }
             let b = MenuIconButton(item: item) { [weak self] sender in
                 item.action(sender)
                 self?.close()
             }
-            b.frame = NSRect(x: pad + CGFloat(i) * size, y: pad, width: size, height: size)
+            b.frame = NSRect(x: x, y: pad, width: size, height: size)
             root.addSubview(b)
+            x += size
         }
         p.contentView = root
         p.alphaValue = 0
@@ -307,16 +342,21 @@ final class IconMenu: NSObject {
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]) { [weak self] e in
             guard let self, let p = self.panel else { return e }
             if e.type == .keyDown { if e.keyCode == 53 { self.close(); return nil }; return e }
-            if e.window === p { return e }
+            if e.window === p || self.airPlayOpen { return e }
             self.close()
             return nil
         } as Any)
-        if let g = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown], handler: { [weak self] _ in self?.close() }) {
+        if let g = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown], handler: { [weak self] _ in
+            if self?.airPlayOpen != true { self?.close() } }) {
             monitors.append(g)
         }
     }
 
+    func routePickerViewWillBeginPresentingRoutes(_ v: AVRoutePickerView) { airPlayOpen = true }
+    func routePickerViewDidEndPresentingRoutes(_ v: AVRoutePickerView) { airPlayOpen = false; close() }
+
     func close() {
+        airPlayOpen = false
         monitors.forEach { NSEvent.removeMonitor($0) }
         monitors = []
         if let p = panel {

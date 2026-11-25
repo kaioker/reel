@@ -55,7 +55,7 @@ Most players want to be the main window. Reel is built to sit in a corner while 
 - **Audio tracks:** switch language or commentary in files that have more than one.
 - **Speed** from ¼× to 2× with pitch kept natural, and **frame-by-frame** stepping.
 - **Long videos pick up where you stopped,** even after playing other things in between.
-- **AirPlay** to a TV or speakers.
+- **AirPlay** to a TV or speakers, from either right-click menu.
 
 Drop something on the video to play it right away, or on the playlist to add it at that spot. Dragging over the
 video opens the playlist so you can. ⌘V works the same way, going wherever the pointer is. Anything playing that isn't
@@ -99,7 +99,7 @@ double-clicking a file in Finder opens it in Reel.
 | , · . | One frame back · forward |
 | V | Subtitles on / off |
 | Right-drag ← → / ↑ ↓ | Seek / volume (or two-finger swipe; mouse wheel is volume) |
-| Right-click | Quick menu: play, loop, shuffle, speed / audio / subtitles, on top, playlist, add, paste, full screen |
+| Right-click | Quick menu. The video and a playlist track share the same track icons (play, loop, shuffle, skip, rename, Finder, AirPlay); then the video adds speed / audio / subtitles, on top, playlist, add, paste, full screen |
 | Two-finger swipe ← → on the playlist | Slide between the playlist and all playlists |
 | ⌘V | Paste links or files where the pointer is: into the playlist, or onto the video to play now |
 | ⌘F | Search the playlist |

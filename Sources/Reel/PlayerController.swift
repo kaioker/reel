@@ -1381,7 +1381,6 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     }
 
     func panelToggleShuffle() { extras.toggleShuffle() }
-    var airPlayPlayer: AVPlayer? { avBackend.player }
 
     func panelToggleLoop(track: UUID) {
         if let i = transient.tracks.firstIndex(where: { $0.id == track }) { transient.tracks[i].loop.toggle() }
@@ -1638,29 +1637,71 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         return true
     }
 
-    /// Right-click on the video: a row of icons.
-    private func showContextMenu() {
-        let playing = backend?.isPlaying == true
-        let items: [IconMenu.Item] = [
-            .init(symbol: playing ? "pause.fill" : "play.fill", tip: playing ? "Pause" : "Play") { [weak self] _ in self?.togglePlay() },
-            .init(symbol: "repeat.1", tip: (currentTrack?.loop ?? false) ? "Stop looping this track (L)" : "Loop this track (L)",
-                  on: currentTrack?.loop ?? false) { [weak self] _ in self?.toggleLoop() },
+    /// The track actions both right-click menus share (on the video: what's playing; in the playlist: that
+    /// track), in the same order with the same icons. Each menu adds its own after a divider.
+    func trackMenuItems(_ t: Track, playlist pid: UUID, selection: [Track]) -> [IconMenu.Item] {
+        let isCurrent = current?.track == t.id
+        let playing = isCurrent && backend?.isPlaying == true
+        let inLibrary = Library.shared.playlist(pid) != nil          // not a loose file
+        let picked = selection.isEmpty ? [t] : selection
+        var items: [IconMenu.Item] = [
+            isCurrent
+                ? .init(symbol: playing ? "pause.fill" : "play.fill", tip: playing ? "Pause (Space)" : "Play (Space)") { [weak self] _ in self?.togglePlay() }
+                : .init(symbol: "play.fill", tip: "Play") { [weak self] _ in self?.play(playlist: pid, track: t.id) },
+            .init(symbol: "repeat.1", tip: t.loop ? "Stop looping this track (L)" : "Loop this track (L)", on: t.loop) { [weak self] _ in
+                if isCurrent { self?.toggleLoop() } else { self?.panelToggleLoop(track: t.id) } },
             .init(symbol: "shuffle", tip: extras.shuffle ? "Shuffle is on (S)" : "Shuffle (S)", on: extras.shuffle) { [weak self] _ in self?.extras.toggleShuffle() },
-            .init(symbol: "captions.bubble", tip: "Speed, audio track and subtitles") { [weak self] _ in self?.extras.popUpMenu(at: NSEvent.mouseLocation) },
-            .init(symbol: Prefs.alwaysOnTop ? "pin.fill" : "pin", tip: "Always on top", on: Prefs.alwaysOnTop) { [weak self] _ in self?.togglePin() },
-            .init(symbol: "sidebar.right", tip: panelOpen ? "Hide playlist" : "Show playlist", on: panelOpen) { [weak self] _ in self?.togglePlaylist() },
-            .init(symbol: "plus", tip: "Add files…") { [weak self] _ in self?.openDocument(nil) },
-        ] + (looseInfo == nil ? [] : [
-            .init(symbol: "text.badge.plus", tip: "Add this to “\(Library.shared.playlist(panel.shownID)?.name ?? "the playlist")”") { [weak self] _ in
+        ]
+        if inLibrary {
+            let strike = !t.isSkipped
+            items.append(.init(symbol: "strikethrough", tip: strike ? "Skip — stays in the playlist, playback passes over it" : "Stop skipping",
+                               on: t.isSkipped) { _ in for x in picked { Library.shared.mutateTrack(x.id) { $0.skip = strike ? true : nil } } })
+            items.append(.init(symbol: "pencil", tip: "Rename") { [weak self] _ in self?.renameTrack(t.id, in: pid) })
+        }
+        if t.kind == .local {
+            items.append(.init(symbol: "folder", tip: "Show in Finder") { _ in if let u = t.url { NSWorkspace.shared.activateFileViewerSelecting([u]) } })
+        } else {
+            items.append(.init(symbol: "link", tip: "Copy link") { _ in
+                guard let u = t.url else { return }
+                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(u.absoluteString, forType: .string) })
+        }
+        if isCurrent {
+            items.append(.init(symbol: "captions.bubble", tip: "Speed, audio track, subtitles, stop after this") { [weak self] _ in
+                self?.extras.popUpMenu(at: NSEvent.mouseLocation) })
+        }
+        items.append(.airPlay(avBackend.player))
+        return items
+    }
+
+    /// Rename from a right-click: shows the track in the playlist and starts editing its name.
+    func renameTrack(_ id: UUID, in pid: UUID) {
+        panelAutoOpened = false; autoCloseWork?.cancel()
+        let wasOpen = panelOpen
+        if !panelOpen { setPanel(open: true) }
+        if panel.shownID != pid || panel.mode != .tracks { panel.show(playlist: pid, animated: wasOpen) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.panel.beginRename(trackID: id) }
+    }
+
+    /// Right-click on the video: what's playing (the shared track actions), then the player's own.
+    private func showContextMenu() {
+        var items: [IconMenu.Item] = []
+        if let t = currentTrack, let c = current { items = trackMenuItems(t, playlist: c.playlist, selection: [t]) + [.divider] }
+        if looseInfo != nil {
+            items.append(.init(symbol: "text.badge.plus", tip: "Add this to “\(Library.shared.playlist(panel.shownID)?.name ?? "the playlist")”") { [weak self] _ in
                 guard let self else { return }
                 self.panelAddLoose()
                 self.panelWantsToBeSeen()
-            },
-        ]) + [
+            })
+        }
+        items += [
+            .init(symbol: Prefs.alwaysOnTop ? "pin.fill" : "pin", tip: "Always on top", on: Prefs.alwaysOnTop) { [weak self] _ in self?.togglePin() },
+            .init(symbol: "sidebar.right", tip: panelOpen ? "Hide playlist" : "Show playlist", on: panelOpen) { [weak self] _ in self?.togglePlaylist() },
+            .init(symbol: "plus", tip: "Add files…") { [weak self] _ in self?.openDocument(nil) },
             .init(symbol: "doc.on.clipboard", tip: "Paste links (⌘V)") { [weak self] _ in self?.paste(nil) },
             .init(symbol: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
                   tip: isFullscreen ? "Exit full screen" : "Full screen") { [weak self] _ in self?.window.toggleFullScreen(nil) },
         ]
+        if current == nil { items.append(.airPlay(avBackend.player)) }
         IconMenu.shared.show(items, at: NSEvent.mouseLocation)
     }
 }
