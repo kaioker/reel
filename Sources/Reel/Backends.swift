@@ -319,6 +319,7 @@ final class YouTubeBackend: NSObject, PlayerBackend, WKScriptMessageHandler, WKN
     let hasVideo = true
     var rate: Float = 1 { didSet { js("reelRate(\(rate))") } }
     func step(frames: Int) { pause(); seek(to: max(0, currentTime + Double(frames) / 30)) }
+    private var hasTrack = false
     /// YouTube's own captions for this video: (language code, name). Found once it starts playing.
     private(set) var captionTracks: [(code: String, name: String)] = []
     private(set) var captionCode: String?
@@ -354,6 +355,7 @@ final class YouTubeBackend: NSObject, PlayerBackend, WKScriptMessageHandler, WKN
 
     func load(_ track: Track) {
         currentTime = 0; duration = track.duration ?? 0
+        hasTrack = true
         captionTracks = []; captionCode = nil
         delegate?.backendTracksChanged()
         let id = track.source.replacingOccurrences(of: "'", with: "")
@@ -377,7 +379,8 @@ final class YouTubeBackend: NSObject, PlayerBackend, WKScriptMessageHandler, WKN
         guard let body = m.body as? [String: Any], let type = body["type"] as? String else { return }
         switch type {
         case "ready":
-            delegate?.backendTransparent(false)
+            // only for a video it's been asked to play (the page also gets ready while another player is in use)
+            if hasTrack { delegate?.backendTransparent(false) }
             pageReady = true
             let q = pending; pending = []
             q.forEach { web.evaluateJavaScript($0, completionHandler: nil) }

@@ -1,9 +1,9 @@
 #!/bin/zsh
 # Builds FFmpeg's decoding libraries as shared libraries for Reel's in-app decoder (no converting needed).
 # They ship in Reel.app/Contents/Frameworks as separate, replaceable files (LGPL v2.1; no GPL parts).
-# libvpx (VP9/VP8 incl. transparency) is linked into libavcodec statically.
+# libvpx (VP9/VP8 incl. transparency) is linked into libavcodec statically (built for macOS 13 by build-libvpx.sh).
 #
-# Needs: Xcode Command Line Tools, brew install libvpx. Uses the FFmpeg source that scripts/build-ffmpeg.sh
+# Needs: Xcode Command Line Tools. Uses the FFmpeg source that scripts/build-ffmpeg.sh
 # downloads (official tarball). Output: .deps/ffmpeg-shared/{include,lib} (cached; rebuilt automatically
 # when the configuration below changes, or delete it to rebuild).
 # Video decodes on the Mac's media engine (VideoToolbox) where it can, in software where it can't.
@@ -18,7 +18,9 @@ DECODERS=vp9,vp8,libvpx_vp9,libvpx_vp8,h264,hevc,av1,mpeg4,mpeg2video,prores,mjp
 PARSERS=vp9,vp8,h264,hevc,av1,aac,mpegaudio,opus,vorbis,flac,ac3,dvdsub,dvbsub
 # Hardware decoding through VideoToolbox (the Mac's media engine); anything it can't take decodes in software.
 HWACCELS=h264_videotoolbox,hevc_videotoolbox,vp9_videotoolbox,av1_videotoolbox,mpeg2_videotoolbox,mpeg4_videotoolbox,prores_videotoolbox
-CONFIG="$VER|$DEMUXERS|$DECODERS|$PARSERS|$HWACCELS"
+./scripts/build-libvpx.sh
+DEPS="$HOME/Library/Caches/reel-ffmpeg-build"
+CONFIG="$VER|$DEMUXERS|$DECODERS|$PARSERS|$HWACCELS|libvpx $(cat "$DEPS/vpx-static/.config")"
 if [[ -f "$OUT/lib/libavcodec.dylib" && "$(cat "$OUT/.config" 2>/dev/null)" == "$CONFIG" ]]; then
   echo "FFmpeg libraries already built: $OUT"; exit 0
 fi
@@ -31,9 +33,6 @@ if [[ ! -d "$DEPS/ffmpeg-$VER" ]]; then
   curl -fL --progress-bar -o "$DEPS/ffmpeg-$VER.tar.xz" "https://ffmpeg.org/releases/ffmpeg-$VER.tar.xz"
   tar -C "$DEPS" -xf "$DEPS/ffmpeg-$VER.tar.xz"
 fi
-VPX=$(brew --prefix libvpx 2>/dev/null || echo /opt/homebrew/opt/libvpx)
-[[ -f "$VPX/lib/libvpx.a" ]] || { echo "Need libvpx: brew install libvpx"; exit 1; }
-rm -rf "$DEPS/vpx-static"; mkdir -p "$DEPS/vpx-static/lib"; cp "$VPX/lib/libvpx.a" "$DEPS/vpx-static/lib/"; cp -R "$VPX/include" "$DEPS/vpx-static/"
 
 PREFIX="$DEPS/shared-prefix"
 # A separate, clean copy of the source (FFmpeg can't build a second configuration from a source tree

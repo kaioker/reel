@@ -451,7 +451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { t0 = pl.backend?.currentTime ?? 0 }
             DispatchQueue.main.asyncAfter(deadline: .now() + 13.0) {
                 let ff = pl.backend as? FFBackend
-                print("engine: \(pl.backend.map { String(describing: type(of: $0)) } ?? "-"), hardware decoding: \(ff?.decodingOnHardware ?? false)")
+                print("engine: \(pl.backend.map { String(describing: type(of: $0)) } ?? "-"), hardware decoding: \(ff?.decodingOnHardware ?? false), shown as transparent: \(pl.debugTransparent)")
                 print(String(format: "played %.1f s of video in 10 s", (pl.backend?.currentTime ?? 0) - t0))
                 fflush(stdout); NSApp.terminate(nil)
             }

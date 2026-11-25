@@ -458,6 +458,7 @@ private final class FFSession {
         }
         let w = Int(f.pointee.width), h = Int(f.pointee.height)
         guard w > 0, h > 0, let pb = makePixelBuffer(w, h) else { return }
+        if debugLog && lastVideoPTS < 0 && dropBefore < 0 { print("ff video frame: \(String(cString: av_get_pix_fmt_name(AVPixelFormat(rawValue: f.pointee.format)))) alpha=\(alpha) codec=\(String(cString: avcodec_get_name(vctx!.pointee.codec_id))) decoder=\(String(cString: vctx!.pointee.codec.pointee.name))"); fflush(stdout) }
 
         sws = sws_getCachedContext(sws, Int32(w), Int32(h), AVPixelFormat(rawValue: f.pointee.format),
                                    Int32(w), Int32(h), AV_PIX_FMT_BGRA, Int32(SWS_BILINEAR.rawValue), nil, nil, nil)

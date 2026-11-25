@@ -31,13 +31,12 @@ install_name_tool -delete_rpath "$PWD/.deps/ffmpeg-shared/lib" "$APP/Contents/Ma
 for lib in "$APP/Contents/Frameworks/"*.dylib; do codesign --force --sign - "$lib" >/dev/null 2>&1 || true; done
 [ -f AppIcon.icns ] && cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp Design/ReelPlaylist.icns "$APP/Contents/Resources/ReelPlaylist.icns" 2>/dev/null || true   # .reel file icon
-cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/" 2>/dev/null || true
+cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
+cp -R licenses "$APP/Contents/Resources/"          # full license texts (LGPL, libvpx BSD + patent grant)
 
 # Bundled ffmpeg (transparent WebM + converting videos macOS can't decode) — so nothing needs installing.
 # Built once from FFmpeg's official source and cached in .deps/ (see scripts/build-ffmpeg.sh).
-if [[ ! -x .deps/ffmpeg-bin/ffmpeg ]]; then
-  ./scripts/build-ffmpeg.sh || echo "⚠︎ Couldn't build the bundled ffmpeg — Reel will use Homebrew's if present."
-fi
+./scripts/build-ffmpeg.sh      # no-op unless it's missing or FFmpeg / libvpx changed
 if [[ -x .deps/ffmpeg-bin/ffmpeg ]]; then
   mkdir -p "$APP/Contents/Helpers"
   cp .deps/ffmpeg-bin/ffmpeg "$APP/Contents/Helpers/ffmpeg"

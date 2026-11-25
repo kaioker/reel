@@ -346,6 +346,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     func debugSeek(_ t: Double) { backend?.seek(to: t) }
     var debugInteraction: InteractionView { interaction }
     var debugVideoArea: NSView { videoArea }
+    var debugTransparent: Bool { videoIsTransparent }
     var debugBackendName: String { backend.map { String(describing: type(of: $0)) } ?? "-" }
     var debugAudio: String { (backend as? FFBackend)?.debugAudioRendering ?? "-" }
     /// What the audio player is actually set to (AVPlayer gain), for REEL_VOLUME_TEST.
@@ -960,10 +961,11 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
     /// macOS's player (or WebKit) can't decode this: decode it in-app with FFmpeg instead.
     func backendTracksChanged() {
-        if backend === ytBackend { extras.youtubeCaptions(ytBackend.captionTracks) }
+        // (checks the type: touching `ytBackend` would create a hidden YouTube player)
+        if let yt = backend as? YouTubeBackend { extras.youtubeCaptions(yt.captionTracks) }
     }
 
-    func ytCaptions(_ code: String?) { ytBackend.setCaptions(code) }
+    func ytCaptions(_ code: String?) { (backend as? YouTubeBackend)?.setCaptions(code) }
 
     func backendNeedsWebFallback() {
         guard let t = currentTrack, t.kind == .local || t.kind == .remote, fallbackStage == 0, let url = t.url else { return }
@@ -1619,7 +1621,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         animate(to: target)
     }
 
-    private var ytBackendActive: Bool { backend === ytBackend }
+    private var ytBackendActive: Bool { backend is YouTubeBackend }   // (no `ytBackend` here: that would create one)
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {

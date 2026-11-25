@@ -3,23 +3,24 @@
 # Only what Reel uses: VP9 (incl. transparency via libvpx) / H.264 / HEVC / AV1 decoding, Apple's hardware
 # HEVC encoder, MP4/MOV/WebM/MKV, web downloads over HTTPS. LGPL build (no GPL parts).
 #
-# Needs: Xcode Command Line Tools, and libvpx's static library (brew install libvpx) — linked in statically,
-# so the result only depends on macOS itself. Output: .deps/ffmpeg-bin/ffmpeg (cached; delete to rebuild).
+# Needs: Xcode Command Line Tools. libvpx is built from source for macOS 13 (scripts/build-libvpx.sh) and
+# linked in statically, so the result only depends on macOS itself.
+# Output: .deps/ffmpeg-bin/ffmpeg (cached; rebuilt when FFmpeg's or libvpx's version changes, or delete it).
 set -e
 cd "$(dirname "$0")/.."
 VER=9.0.2
 OUT="$PWD/.deps/ffmpeg-bin"
-[[ -x "$OUT/ffmpeg" ]] && { echo "ffmpeg already built: $OUT/ffmpeg"; exit 0; }
+./scripts/build-libvpx.sh
+CONFIG="$VER|libvpx $(cat "$HOME/Library/Caches/reel-ffmpeg-build/vpx-static/.config")"
+if [[ -x "$OUT/ffmpeg" && "$(cat "$OUT/.config" 2>/dev/null)" == "$CONFIG" ]]; then
+  echo "ffmpeg already built: $OUT/ffmpeg"; exit 0
+fi
 mkdir -p "$OUT"
 # FFmpeg's configure can't cope with spaces in paths (this project lives in "Reel Player"),
 # so the build happens in a space-free cache folder and only the finished binary is copied back.
 DEPS="$HOME/Library/Caches/reel-ffmpeg-build"
 mkdir -p "$DEPS"
 
-# libvpx: link the static archive only (a folder with just libvpx.a, so the linker can't pick the .dylib)
-VPX=$(brew --prefix libvpx 2>/dev/null || echo /opt/homebrew/opt/libvpx)
-[[ -f "$VPX/lib/libvpx.a" ]] || { echo "Need libvpx: brew install libvpx"; exit 1; }
-rm -rf "$DEPS/vpx-static"; mkdir -p "$DEPS/vpx-static/lib"; cp "$VPX/lib/libvpx.a" "$DEPS/vpx-static/lib/"; cp -R "$VPX/include" "$DEPS/vpx-static/"
 
 cd "$DEPS"
 if [[ ! -d "ffmpeg-$VER" ]]; then
@@ -28,6 +29,7 @@ if [[ ! -d "ffmpeg-$VER" ]]; then
   tar xf "ffmpeg-$VER.tar.xz"
 fi
 cd "ffmpeg-$VER"
+make distclean >/dev/null 2>&1 || true     # a clean configuration each time (in-tree build)
 
 ./configure --prefix="$DEPS/prefix" \
   --disable-everything --disable-autodetect --disable-doc --disable-debug \
@@ -50,4 +52,5 @@ cd "ffmpeg-$VER"
 make -j"$(sysctl -n hw.ncpu)" ffmpeg
 cp ffmpeg "$OUT/ffmpeg"
 strip "$OUT/ffmpeg" 2>/dev/null || true
+echo "$CONFIG" > "$OUT/.config"
 echo "Built $OUT/ffmpeg"

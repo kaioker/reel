@@ -140,8 +140,9 @@ GitHub for updates.
 
 <br>
 
-Needs the Swift toolchain (Xcode or the Command Line Tools) and `brew install libvpx`.
-The first build downloads FFmpeg's source and builds its decoders once (cached in `.deps/`).
+Needs the Swift toolchain (Xcode or the Command Line Tools); nothing else to install. The first build downloads
+the official FFmpeg and libvpx sources and builds them for macOS 13 and later (cached; rebuilt only when their
+versions or options change).
 
 ```sh
 ./build.sh            # builds Reel.app here
@@ -162,4 +163,4 @@ author and aren't covered by that license. See [LICENSE](LICENSE).
 ## Acknowledgements
 
 Reel uses [FFmpeg](https://ffmpeg.org) (LGPL) and [libvpx](https://chromium.googlesource.com/webm/libvpx) (BSD)
-for formats macOS can't play itself. Details and source links are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+for formats macOS can't play itself. Details, source links and license texts are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
