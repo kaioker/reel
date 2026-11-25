@@ -103,7 +103,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   </array>
 </dict></plist>
 PLIST
-codesign --force --sign - "$APP" >/dev/null 2>&1 || true
+# Ad-hoc signatures are normally pinned to this exact build's hash, so macOS forgets the Accessibility
+# permission (hover hotkeys) after every update even though Settings still shows Reel switched on.
+# Naming the bundle identifier as the requirement lets the permission carry over to new builds.
+codesign --force --sign - -r='designated => identifier "app.reel.player"' "$APP" >/dev/null 2>&1 || true
 echo "Built Reel v$VER  →  $(pwd)/$APP"
 # Keep macOS from listing this build as another installed Reel (Open With, default apps, Spotlight)
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister

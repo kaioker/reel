@@ -26,8 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Hotkeys while the mouse is over Reel, even when another app is active (needs Accessibility).
         hoverHotkeys = HoverHotkeys(player: player)
         let testingLaunch = ProcessInfo.processInfo.environment.keys.contains(where: { $0.hasPrefix("REEL_") })
-        if Prefs.hoverHotkeys && (!testingLaunch || ProcessInfo.processInfo.environment["REEL_HOVER_INSTALL_TEST"] != nil) {
+        // Never chosen either way: wait quietly, since allowing Reel in Accessibility switches it on.
+        let hoverUnset = UserDefaults.standard.object(forKey: "hoverHotkeys") == nil
+        if (Prefs.hoverHotkeys || hoverUnset) && (!testingLaunch || ProcessInfo.processInfo.environment["REEL_HOVER_INSTALL_TEST"] != nil) {
             hoverHotkeys?.start()
+            if !hoverUnset && !HoverHotkeys.isTrusted { noteHoverPermissionMissing() }
         }
         if !pendingOpen.isEmpty { player.open(files: pendingOpen); pendingOpen = [] }
         // REEL_PLAY="<url or path>" adds it to the shown playlist and plays it (handy from a terminal)
@@ -1137,7 +1140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let a = NSAlert()
         a.messageText = "One more step"
-        a.informativeText = "To use Reel's hotkeys while the mouse is over it and another app is active, turn Reel on in System Settings → Privacy & Security → Accessibility. Reel only acts on its own hotkeys (Space, arrows, ⇧-arrows, L, M, F), and only while the mouse is over its window."
+        a.informativeText = "To use Reel's hotkeys while the mouse is over it and another app is active, turn Reel on in System Settings → Privacy & Security → Accessibility. If Reel is already listed there and switched on, macOS is holding a permission from an older build: select Reel, remove it with −, then add it again with +.\n\nReel only acts on its own hotkeys (Space, arrows, ⇧-arrows, F, L, M, S, V, [ ] = , .), and only while the mouse is over its window."
         a.addButton(withTitle: "Open Settings"); a.addButton(withTitle: "Cancel")
         a.beginSheetModal(for: player.window) { r in
             guard r == .alertFirstButtonReturn else {
@@ -1146,6 +1149,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self.hoverHotkeys?.askForPermission()
             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
             self.hoverHotkeys?.start()     // keeps checking, and switches on once allowed
+        }
+    }
+
+    /// The setting is on but macOS isn't letting Reel see keys (an older build's permission went stale,
+    /// or it was switched off in Settings). Say so instead of silently doing nothing.
+    func noteHoverPermissionMissing() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            guard Prefs.hoverHotkeys, !HoverHotkeys.isTrusted else { return }
+            self.player.panelNotice("Hover hotkeys need Accessibility: Reel → Hotkeys While Hovering to fix",
+                                    symbol: "keyboard", sticky: false)
         }
     }
 
@@ -1180,6 +1193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item.state = DefaultPlayer.isDefault(item.tag == 0 ? .video : .music) ? .on : .off
             return DefaultPlayer.appURL != nil
         }
+        if item.action == #selector(toggleHoverHotkeys(_:)) { item.state = Prefs.hoverHotkeys ? .on : .off }
         return true
     }
 

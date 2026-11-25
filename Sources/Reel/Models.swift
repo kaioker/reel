@@ -398,9 +398,10 @@ enum Prefs {
     }
     /// The volume *level* you see as a percentage (0…1, perceptual — see `Loudness`).
     /// Older versions stored the raw gain under "volume"; that's converted so it sounds the same.
-    /// Reel's hotkeys while the mouse is over it, even when another app is active (off by default).
+    /// Reel's hotkeys while the mouse is over it, even when another app is active. Off by default, but
+    /// allowing Reel in Privacy & Security → Accessibility counts as turning it on (until you switch it off).
     static var hoverHotkeys: Bool {
-        get { UserDefaults.standard.bool(forKey: "hoverHotkeys") }
+        get { UserDefaults.standard.object(forKey: "hoverHotkeys") as? Bool ?? HoverHotkeys.isTrusted }
         set { UserDefaults.standard.set(newValue, forKey: "hoverHotkeys") }
     }
     static var volume: Float {
