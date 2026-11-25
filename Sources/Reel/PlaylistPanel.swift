@@ -203,6 +203,8 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     let dropHighlight: DropHighlight = { let d = DropHighlight(); d.dims = false; return d }()
     /// Shown above the list while something that isn't in a playlist is playing, with an Add button.
     private let looseBar = LooseBar()
+    /// Shown above the list for a playlist opened from a .reel file that isn't saved yet.
+    private let saveBar = LooseBar(caption: "Opened from a file · not saved", buttonTitle: "Save")
     private var pendingReload = false
     private var resolving = 0
     var isBusy: Bool { resolving > 0 }
@@ -286,11 +288,13 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         setTransport(playing: false, loop: false, hasTrack: false)
         looseBar.isHidden = true
         looseBar.button.target = self; looseBar.button.action = #selector(addLooseClicked)
+        saveBar.isHidden = true
+        saveBar.button.target = self; saveBar.button.action = #selector(saveClicked)
         listHost.wantsLayer = true
         listHost.layer?.masksToBounds = true
         scroll.autoresizingMask = [.width, .height]
         listHost.addSubview(scroll)
-        [divider, nameField, switchBtn, countLabel, looseBar, listHost, emptyHint, transportBar, dropHighlight].forEach(addSubview)
+        [divider, nameField, switchBtn, countLabel, looseBar, saveBar, listHost, emptyHint, transportBar, dropHighlight].forEach(addSubview)
         registerForDraggedTypes([.fileURL, .URL, .string])
         table.onDragExit = { [weak self] in self?.dropHighlight.hide() }
 
@@ -320,11 +324,13 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         switchBtn.frame = NSRect(x: nameField.frame.maxX + 1, y: cy - 11, width: 22, height: 22)
         countLabel.frame = NSRect(x: 15, y: cy - 28, width: W - 30, height: 15)
         var top = showCount ? cy - 32 : cy - 14
-        if !looseBar.isHidden && H >= 170 {
-            looseBar.frame = NSRect(x: 8, y: top - 46, width: W - 16, height: 42)
-            top -= 50
-        } else {
-            looseBar.frame = .zero
+        for bar in [saveBar, looseBar] {
+            if !bar.isHidden && H >= 170 {
+                bar.frame = NSRect(x: 8, y: top - 46, width: W - 16, height: 42)
+                top -= 50
+            } else {
+                bar.frame = .zero
+            }
         }
 
         let barH: CGFloat = showBar ? 34 : 0
@@ -479,7 +485,8 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         switchBtn.setSymbol("chevron.down", size: 10)
         switchBtn.toolTip = "Show all playlists"
         addBtn.toolTip = "Add files… (paste links with ⌘V)"
-        countLabel.stringValue = Self.summary(p?.tracks ?? [])
+        countLabel.stringValue = (p?.isUnsaved == true ? "Not saved · " : "") + Self.summary(p?.tracks ?? [])
+        refreshLoose()
     }
 
     static func summary(_ ts: [Track]) -> String {
@@ -620,7 +627,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         if !cell.title.editingName { cell.title.stringValue = p.name }
         cell.title.alphaValue = 1; cell.detail.alphaValue = 1
         cell.fixBtn.isHidden = true
-        cell.detail.stringValue = Self.summary(p.tracks)
+        cell.detail.stringValue = (p.isUnsaved ? "Not saved · " : "") + Self.summary(p.tracks)
         let playing = delegate?.nowPlayingPlaylistID == p.id
         cell.badge.image = playing ? symbol("speaker.wave.2.fill", 11) : nil
         cell.title.textColor = playing ? .controlAccentColor : .white
@@ -641,7 +648,9 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         guard row >= 0, row < all.count else { return }
         table.selectRowIndexes([row], byExtendingSelection: false)
         let p = all[row]
-        var items: [IconMenu.Item] = [
+        var items: [IconMenu.Item] = (p.isUnsaved ? [
+            .init(symbol: "square.and.arrow.down", tip: "Save to your playlists") { [weak self] _ in self?.save(p.id) },
+        ] : []) + [
             .init(symbol: "list.bullet", tip: "Open") { [weak self] _ in self?.show(playlist: p.id, animated: true) },
             .init(symbol: "pencil", tip: "Rename") { [weak self] _ in
                 (self?.table.view(atColumn: 0, row: row, makeIfNecessary: true) as? TrackCell)?.title.beginRename() },
@@ -947,6 +956,12 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     // MARK: Loose items (playing, but not in a playlist)
 
     func refreshLoose() {
+        let shown = Library.shared.playlist(shownID)
+        let unsaved = mode == .tracks && shown?.isUnsaved == true
+        if unsaved != !saveBar.isHidden { saveBar.isHidden = !unsaved; needsLayout = true }
+        if unsaved, let shown {
+            saveBar.set(title: shown.name, tip: "Keep “\(shown.name)” with your playlists")
+        }
         let info = delegate?.looseInfo
         let wasHidden = looseBar.isHidden
         looseBar.isHidden = info == nil || mode == .playlists
@@ -959,7 +974,18 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     @objc private func addLooseClicked() { delegate?.panelAddLoose() }
+    @objc private func saveClicked() { save(shownID) }
+
+    /// Keeps a playlist opened from a .reel file.
+    func save(_ id: UUID) {
+        Library.shared.save(id)
+        let name = Library.shared.playlist(id)?.name ?? "playlist"
+        delegate?.panelNotice("Saved “\(name)” to your playlists", symbol: "checkmark.circle.fill", sticky: false)
+        refreshLoose()
+    }
     var debugLooseBar: LooseBar { looseBar }
+    var debugSaveBarShown: Bool { !saveBar.isHidden }
+    var countLabelText: String { countLabel.stringValue }
 
     /// Selects these tracks and scrolls to them (after they were added).
     func reveal(trackIDs: [UUID]) {
@@ -1130,6 +1156,12 @@ final class LooseBar: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
     override var mouseDownCanMoveWindow: Bool { false }
+
+    convenience init(caption c: String, buttonTitle b: String) {
+        self.init(frame: .zero)
+        caption.stringValue = c
+        button.title = b
+    }
 
     func set(title t: String, tip: String) {
         title.stringValue = t

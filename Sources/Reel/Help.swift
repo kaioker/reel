@@ -68,7 +68,8 @@ final class HelpWindow: NSObject {
         ("Sharing playlists", [
             ("Export button", "Saves the shown playlist as a .reel file (name, link, loop, skip per track)"),
             ("Where they live", "Each playlist is a .reel file in ~/Library/Application Support/Reel/Playlists"),
-            ("Import", "Double-click a .reel file, drop it on Reel, or pick it with + — it arrives as a new playlist"),
+            ("Open a .reel file", "Double-click it (or drop it on the video): it plays right away, marked Not saved — Save keeps it with your playlists"),
+            ("Import", "Drop a .reel file on the playlist, or pick it with + — it's added to your playlists"),
         ]),
         ("On launch", [
             ("", "Reel loads the first item of the playlist you used last, paused"),

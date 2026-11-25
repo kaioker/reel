@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let u = ProcessInfo.processInfo.environment["REEL_PLAY"] {
             if u == "first" { player.nextTrack() } else { player.panel.add(text: u, at: nil, playFirst: true) }
         }
-        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
+        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST", "REEL_REELFILE_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
         if !testing { NSApp.activate(ignoringOtherApps: true) }
         if let dir = ProcessInfo.processInfo.environment["REEL_DOT_TEST"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
@@ -439,6 +439,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         let editing = (0..<panel.table.numberOfRows).contains { (panel.table.view(atColumn: 0, row: $0, makeIfNecessary: false) as? TrackCell)?.title.editingName == true }
                         print("5. new playlist: \(state()) name being typed=\(editing)")
                         NSApp.terminate(nil) }),
+            ]
+            var t = 0.0
+            for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
+        }
+        if let file = ProcessInfo.processInfo.environment["REEL_REELFILE_TEST"] {
+            // Opening a .reel file plays it without importing; Save keeps it.
+            let pl = self.player!, panel = pl.panel, lib = Library.shared
+            func files() -> [String] { ((try? FileManager.default.contentsOfDirectory(atPath: Library.folder?.path ?? "")) ?? []).sorted() }
+            func state() -> String {
+                let playing = pl.nowPlayingTrackID.flatMap { id in lib.playlists.flatMap(\.tracks).first { $0.id == id }?.displayName } ?? "-"
+                let shown = lib.playlist(panel.shownID)
+                return "playing=\(playing) shown='\(shown?.name ?? "?")' unsaved=\(shown?.isUnsaved == true) header='\(panel.countLabelText)' saveBar=\(panel.debugSaveBarShown) pane=\(pl.panelOpen)"
+            }
+            let before = files()
+            let steps: [(Double, () -> Void)] = [
+                (1.0, { pl.open(files: [URL(fileURLWithPath: file)])
+                        print("1. opened the .reel: \(state())")
+                        print("   playlists: \(lib.playlists.map { $0.name + ($0.isUnsaved ? " (unsaved)" : "") })") }),
+                (1.0, { print("   files on disk unchanged: \(files() == before) \(files())")
+                        pl.open(files: [URL(fileURLWithPath: file)])
+                        print("2. opened it again: \(lib.playlists.count) playlists (no duplicate)") }),
+                (0.5, { if let own = lib.playlists.first(where: { !$0.isUnsaved }), let f = lib.fileURL(for: own.id) {
+                            let n = lib.playlists.count; pl.open(files: [f])
+                            print("3. opened one of your own saved files (\(f.lastPathComponent)): \(state()), playlists \(n) → \(lib.playlists.count)")
+                        } }),
+                (0.5, { if let u = lib.playlists.first(where: { $0.isUnsaved }) { panel.show(playlist: u.id); panel.save(u.id) }
+                        print("4. clicked Save: \(state())") }),
+                (1.0, { print("   files on disk now: \(files())"); NSApp.terminate(nil) }),
             ]
             var t = 0.0
             for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }

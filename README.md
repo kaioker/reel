@@ -61,7 +61,8 @@ double-clicking a file in Finder opens it in Reel.
 - Each playlist is saved as a `.reel` file in `~/Library/Application Support/Reel/Playlists`, easy to back up or copy
 - Per-track loop, play next, rename, and **skip**: struck-through tracks stay in the list, but playback passes over them
 - Plays round to the top at the end
-- **Share playlists as `.reel` files.** Export one, send it to a friend, and they double-click it to open it in Reel.
+- **Share playlists as `.reel` files.** Export one and send it to a friend. Double-clicking it plays it straight away
+  without adding it to their playlists; they click **Save** if they want to keep it.
 
 ## Controls
 

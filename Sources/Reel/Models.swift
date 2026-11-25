@@ -67,6 +67,10 @@ struct Playlist: Codable, Identifiable {
     var id = UUID()
     var name: String
     var tracks: [Track] = []
+    /// Opened from a .reel file and not saved: it plays and can be edited, but isn't written to your
+    /// playlists (and is gone after you quit) unless you save it.
+    var unsaved: Bool? = nil
+    var isUnsaved: Bool { unsaved == true }
 }
 
 /// Reel's own playlist file: `.reel` (JSON inside). Declared in Info.plist so Finder shows it with Reel's
@@ -169,6 +173,8 @@ final class Library {
     private var owned = Set<String>()
     /// Each playlist's file name from the last save, for "Show in Finder".
     private var fileNames: [UUID: String] = [:]
+    /// Unsaved playlists and the .reel file each was opened from (opening it again reuses it).
+    private var openedFrom: [UUID: URL] = [:]
 
     private init() {
         let fm = FileManager.default
@@ -245,6 +251,34 @@ final class Library {
         didChange()
     }
 
+    /// A .reel file opened from Finder (or dropped on the video): if it's one of your saved playlists, that
+    /// playlist; if it's already open, that one; otherwise a new *unsaved* playlist that isn't kept unless you save it.
+    func open(file url: URL) -> Playlist? {
+        let u = url.standardizedFileURL.resolvingSymlinksInPath()
+        if let dir = Self.folder, u.deletingLastPathComponent().path == dir.standardizedFileURL.resolvingSymlinksInPath().path,
+           let id = fileNames.first(where: { $0.value.lowercased() == u.lastPathComponent.lowercased() })?.key, let p = playlist(id) {
+            return p
+        }
+        if let id = openedFrom.first(where: { $0.value == u })?.key, let p = playlist(id) { return p }
+        guard let (name, tracks) = PlaylistFile.readNamed(url) else { return nil }
+        var p = Playlist(name: name)
+        p.tracks = tracks.map { var t = $0; t.id = UUID(); return t }
+        p.unsaved = true
+        playlists.append(p)
+        openedFrom[p.id] = u
+        didChange()
+        return p
+    }
+
+    /// Keeps an unsaved playlist: it's written to your playlists from now on (name made unique among them).
+    func save(_ id: UUID) {
+        guard let p = playlist(id), p.isUnsaved else { return }
+        var name = p.name, n = 2
+        while playlists.contains(where: { $0.id != id && !$0.isUnsaved && $0.name.lowercased() == name.lowercased() }) { name = "\(p.name) \(n)"; n += 1 }
+        openedFrom[id] = nil
+        mutate(id) { $0.unsaved = nil; $0.name = name }
+    }
+
     /// Adds an exported playlist as a new one (fresh ids, name made unique).
     func importPlaylist(named base: String, tracks: [Track]) -> Playlist {
         var name = base, n = 2
@@ -258,7 +292,8 @@ final class Library {
 
     func removePlaylist(_ id: UUID) {
         playlists.removeAll { $0.id == id }
-        if playlists.isEmpty { playlists = [Playlist(name: "Playlist 1")] }
+        openedFrom[id] = nil
+        if !playlists.contains(where: { !$0.isUnsaved }) { playlists.insert(Playlist(name: "Playlist 1"), at: 0) }
         didChange()
     }
 
@@ -287,11 +322,11 @@ final class Library {
     private func saveJob() -> () -> Void {
         switch Self.store {
         case .legacy(let url):
-            let data = (try? JSONEncoder().encode(playlists)) ?? Data()
+            let data = (try? JSONEncoder().encode(playlists.filter { !$0.isUnsaved })) ?? Data()
             return { try? data.write(to: url, options: .atomic) }
         case .folder(let dir):
             var used = Set<String>(), writes: [(String, Data)] = []
-            for (i, p) in playlists.enumerated() {
+            for (i, p) in playlists.filter({ !$0.isUnsaved }).enumerated() {
                 var base = p.name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 while base.hasPrefix(".") { base.removeFirst() }

@@ -404,8 +404,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         }
         interaction.onDragEnter = { [weak self] pb in
             guard let self, let s = PlaylistPanel.dropSummary(pb) else { return false }
-            self.dropHighlight.show(title: s.isPlaylist ? "Drop to import playlist" : "Drop to play",
-                                    detail: s.isPlaylist ? s.detail : "\(s.detail) · drop on the playlist to add it")
+            self.dropHighlight.show(title: s.isPlaylist ? "Drop to play playlist" : "Drop to play",
+                                    detail: s.isPlaylist ? "\(s.detail) · drop on the playlist to keep it" : "\(s.detail) · drop on the playlist to add it")
             // Open the playlist so you can carry the drag over and drop it at a particular spot.
             self.openPanelTemporarily()
             return true
@@ -830,7 +830,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         guard let track = list(pid)?.tracks.first(where: { $0.id == tid }) else { return }
         failTimer?.cancel()
         current = (pid, tid)
-        if pid != transientID { Prefs.lastPlaylist = pid.uuidString }   // remembered for autoplay on next launch
+        // remembered for autoplay on next launch (not loose files, or a playlist opened from a file and not saved)
+        if pid != transientID, Library.shared.playlist(pid)?.isUnsaved != true { Prefs.lastPlaylist = pid.uuidString }
         emptyHint.isHidden = true
         loadToken += 1
         fallbackStage = 0
@@ -1414,7 +1415,12 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     /// (Exported playlists still import as playlists.)
     func open(files: [URL]) {
         let lists = files.filter { PlaylistFile.readNamed($0) != nil }
-        if !lists.isEmpty { panel.add(files: lists, at: nil, playFirst: true) }
+        if !lists.isEmpty {
+            // .reel files play right away as they are; they only join your playlists if you save them
+            let opened = lists.compactMap { Library.shared.open(file: $0) }
+            if let p = opened.first { play(openedPlaylist: p) }
+            return
+        }
         let media = files.filter { !lists.contains($0) }
         let tracks = MediaResolver.tracks(forFiles: media)
         if tracks.isEmpty {
@@ -1423,6 +1429,17 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
             return
         }
         playLoose(tracks)
+    }
+
+    /// A playlist opened from a .reel file: plays its first track and shows it (with Save, if it isn't one of yours).
+    private func play(openedPlaylist p: Playlist) {
+        if let first = p.tracks.first(where: { $0.isPlayableInSequence }) {
+            play(playlist: p.id, track: first.id)
+            toast.show(p.isUnsaved ? "Playing “\(p.name)” · not saved to your playlists" : "Playing “\(p.name)”", symbol: "play.circle.fill", sticky: false)
+        } else {
+            toast.show("Nothing playable in “\(p.name)”", symbol: "exclamationmark.triangle.fill", sticky: false)
+        }
+        if panelOpen { panel.show(playlist: p.id) } else { panelAutoOpened = false; setPanel(open: true); panel.show(playlist: p.id) }
     }
 
     /// Plays these straight through once, outside any playlist ("loose"). The playlist shows an Add button for them.
