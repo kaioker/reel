@@ -56,19 +56,27 @@ double-clicking a file in Finder opens it in Reel.
 
 ## Playlists
 
-- A collapsible playlist slides out beside the video (⌘P, or the blue dot next to the window buttons)
-- As many playlists as you like. Click the playlist's name to swap to the list of all of them, or switch with ⇧↑ / ⇧↓
-- Each playlist is saved as a `.reel` file in `~/Library/Application Support/Reel/Playlists`, easy to back up or copy
-- Per-track loop, play next, rename, and **skip**: struck-through tracks stay in the list, but playback passes over them
-- Plays round to the top at the end
+<div align="center">
+<img src="docs/screenshot-playlists.png" alt="All playlists, shown beside the video" width="620">
+</div>
+
+- A collapsible playlist slides out beside the video (⌘P, or the blue dot next to the window buttons). Opening it
+  always shows what's playing.
+- As many playlists as you like. Click the playlist's name, or swipe sideways with two fingers, to slide over to
+  all of them. Picking one shows it without interrupting what's playing. ⇧↑ / ⇧↓ switch from the keyboard.
+- Right-click a playlist to rename, export, show in Finder, clear or delete it. Drag to reorder.
+- Each playlist is saved as a `.reel` file in `~/Library/Application Support/Reel/Playlists`, easy to back up or copy.
+- Per-track loop, play next, rename, and **skip**: struck-through tracks stay in the list, but playback passes over them.
+- Plays round to the top at the end.
 - **Share playlists as `.reel` files.** Export one and send it to a friend. Double-clicking it plays it straight away
-  without adding it to their playlists; they click **Save** if they want to keep it.
+  without adding it to their playlists; they click **Save** if they want to keep it. Dropping one on Reel asks
+  whether to play it without saving, save it, or add its items to the playlist you're viewing.
 
 ## Controls
 
 | Input | Action |
 |---|---|
-| Click the video | Play / pause (works even when Reel isn't the active app) |
+| Click the video | Play / pause, and brings Reel forward |
 | Double-click | Full screen |
 | Space | Play / pause |
 | ← → | Back / forward 10 seconds |
@@ -76,7 +84,8 @@ double-clicking a file in Finder opens it in Reel.
 | ⇧↑ ⇧↓ | Previous / next playlist |
 | L · M · F | Loop track · mute · full screen |
 | Right-drag ← → / ↑ ↓ | Seek / volume (or two-finger swipe; mouse wheel is volume) |
-| Right-click | Quick menu: play, loop, on top, playlist, add, paste, full screen |
+| Right-click | Quick menu: play, loop, on top, playlist, add, paste, full screen (brings Reel forward too) |
+| Two-finger swipe ← → on the playlist | Slide between the playlist and all playlists |
 | ⌘V | Paste links or files where the pointer is: into the playlist, or onto the video to play now |
 | ⌘P · ⌘T · ⌘0 | Playlist · always on top · actual size |
 | Headset, AirPods, ⏯ ⏭ ⏮ keys | Play / pause, next and previous track; Reel shows in Control Center's Now Playing |

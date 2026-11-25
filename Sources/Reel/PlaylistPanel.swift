@@ -177,16 +177,28 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     weak var delegate: PlaylistPanelDelegate?
     private(set) var shownID: UUID
 
+    /// Title row: the shown playlist's name and count, cross-faded with "Playlists" and how many.
     let nameField = TripleClickField()
-    private lazy var switchBtn = IconButton("chevron.down", size: 10, tip: "All playlists", target: self, action: #selector(toggleModeClicked))
     private let countLabel = NSTextField(labelWithString: "")
-    private let scroll = NSScrollView()
-    /// Holds the list and clips it, so the list can swipe sideways between a playlist and all playlists.
+    private let listsTitle = TripleClickField()
+    private let listsCount = NSTextField(labelWithString: "")
+    /// The line under the title row.
+    private let headerLine = NSView()
+    /// Two panes side by side — all playlists on the left, the shown playlist's tracks on the right — that slide
+    /// (click the title, or swipe sideways with two fingers). Both keep the full frame (so their lists always have
+    /// rows ready) and slide by layer translation; `listHost` clips them.
     private let listHost = NSView()
+    private let playlistsPane = NSView()
+    private let tracksPane = NSView()
+    private let scroll = PaneScrollView()
     let table = TrackTable()
-    /// The list shows one playlist's tracks, or all playlists (click the title to switch).
+    private let listsScroll = PaneScrollView()
+    let playlistTable = TrackTable()
+    /// Which pane is showing (click the title or swipe to switch).
     enum Mode { case tracks, playlists }
     private(set) var mode: Mode = .tracks
+    /// 0 = the tracks pane, 1 = all playlists; in between while sliding.
+    private var progress: CGFloat = 0
     private let background: NSView = {
         if #available(macOS 26.0, *) {
             let g = NSGlassEffectView(); g.cornerRadius = 0; return g
@@ -199,11 +211,10 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private lazy var nextBtn = IconButton("forward.end.fill", size: 12, tip: "Next track (↓)", target: self, action: #selector(tNext))
     private lazy var loopBtn = IconButton("repeat.1", size: 13, tip: "Loop this track (L)", target: self, action: #selector(tLoop))
     private lazy var addBtn = IconButton("plus", size: 15, tip: "Add files… (paste links with ⌘V)", target: self, action: #selector(tAdd))
-    private lazy var exportBtn = IconButton("square.and.arrow.up", size: 13, tip: "Export this playlist (drop the file on Reel to import it)", target: self, action: #selector(exportPlaylist))
     private let transportBar = NSView()
     private let spinner = NSProgressIndicator()
     private let emptyHint = NSTextField(wrappingLabelWithString: "Drop files, folders or links here,\npress ⌘V to paste links,\nor click + to choose files.\n\nClick a track to play it.\nDouble-click a title to rename it.")
-    private let divider = NSBox()
+    private let divider = NSBox()     // the vertical edge against the video
     let dropHighlight: DropHighlight = { let d = DropHighlight(); d.dims = false; return d }()
     /// Shown above the list while something that isn't in a playlist is playing, with an Add button.
     private let looseBar = LooseBar()
@@ -227,54 +238,57 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         appearance = NSAppearance(named: .darkAqua)
         addSubview(background)
 
-        nameField.configureAsLabel(size: 13, weight: .semibold)
-        nameField.textColor = .white
-        nameField.handlesRenameClick = false
-        nameField.onClick = { [weak self] in self?.toggleMode() }
-        countLabel.font = .systemFont(ofSize: 11)
-        countLabel.textColor = NSColor.white.withAlphaComponent(0.5)
-
-        let col = NSTableColumn(identifier: .init("t"))
-        table.addTableColumn(col)
-        table.headerView = nil
-        table.rowHeight = 42
-        table.intercellSpacing = NSSize(width: 0, height: 2)
-        table.backgroundColor = .clear
-        table.style = .plain
-        table.selectionHighlightStyle = .regular
-        table.allowsMultipleSelection = true
-        table.dataSource = self
-        table.delegate = self
-        table.focusRingType = .none
-        table.registerForDraggedTypes([reorderType, .fileURL, .URL, .string])
-        table.setDraggingSourceOperationMask(.move, forLocal: true)
-        table.onPlay = { [weak self] row in
-            guard let self else { return }
-            if self.mode == .playlists { self.open(playlistAt: row) } else { self.play(row: row) }
+        for (f, c) in [(nameField, countLabel), (listsTitle, listsCount)] {
+            f.configureAsLabel(size: 13, weight: .semibold)
+            f.textColor = .white
+            f.handlesRenameClick = false
+            f.onClick = { [weak self] in self?.toggleMode() }
+            c.font = .systemFont(ofSize: 11)
+            c.textColor = NSColor.white.withAlphaComponent(0.5)
         }
+        listsTitle.stringValue = "Playlists"
+        headerLine.wantsLayer = true
+        headerLine.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.12).cgColor
+
+        for (t, sc) in [(table, scroll), (playlistTable, listsScroll)] {
+            t.addTableColumn(NSTableColumn(identifier: .init("t")))
+            t.headerView = nil
+            t.rowHeight = 42
+            t.intercellSpacing = NSSize(width: 0, height: 2)
+            t.backgroundColor = .clear
+            t.style = .plain
+            t.selectionHighlightStyle = .regular
+            t.dataSource = self
+            t.delegate = self
+            t.focusRingType = .none
+            t.registerForDraggedTypes([reorderType, .fileURL, .URL, .string])
+            t.setDraggingSourceOperationMask(.move, forLocal: true)
+            t.onDragExit = { [weak self] in self?.dropHighlight.hide() }
+            sc.documentView = t
+            sc.drawsBackground = false
+            sc.hasVerticalScroller = true
+            sc.autohidesScrollers = true
+            sc.scrollerStyle = .overlay
+            sc.verticalScroller = TracklessScroller()
+            sc.verticalScroller?.knobStyle = .light
+            sc.onSwipe = { [weak self] e in self?.trackSwipe(e) ?? false }
+        }
+        table.allowsMultipleSelection = true
+        table.onPlay = { [weak self] row in self?.play(row: row) }
         table.onRename = { [weak self] row, pt in
             // not the second click of a double-click that just opened a playlist
-            guard let self, self.mode == .tracks, Date().timeIntervalSince(self.lastSwap) > 0.6, let cell = self.table.view(atColumn: 0, row: row, makeIfNecessary: false) as? TrackCell else { return }
+            guard let self, Date().timeIntervalSince(self.lastSwap) > 0.6, let cell = self.table.view(atColumn: 0, row: row, makeIfNecessary: false) as? TrackCell else { return }
             if cell.titleHit(pt) { cell.title.beginRename() }
         }
-        table.onDelete = { [weak self] in
-            guard let self else { return }
-            if self.mode == .playlists {
-                if let r = self.table.selectedRowIndexes.first, r < Library.shared.playlists.count { self.deletePlaylist(Library.shared.playlists[r].id) }
-            } else { self.removeSelected() }
+        table.onDelete = { [weak self] in self?.removeSelected() }
+        table.onRightClick = { [weak self] row, e in self?.showContextMenu(row: row, event: e) }
+        playlistTable.allowsMultipleSelection = false
+        playlistTable.onPlay = { [weak self] row in self?.open(playlistAt: row) }
+        playlistTable.onDelete = { [weak self] in
+            guard let self, let r = self.playlistTable.selectedRowIndexes.first, r < Library.shared.playlists.count else { return }
+            self.deletePlaylist(Library.shared.playlists[r].id)
         }
-        table.onRightClick = { [weak self] row, e in
-            guard let self else { return }
-            if self.mode == .playlists { self.showPlaylistContextMenu(row: row) } else { self.showContextMenu(row: row, event: e) }
-        }
-
-        scroll.documentView = table
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
-        scroll.verticalScroller = TracklessScroller()
-        scroll.verticalScroller?.knobStyle = .light
+        playlistTable.onRightClick = { [weak self] row, _ in self?.showPlaylistContextMenu(row: row) }
 
         spinner.style = .spinning
         spinner.controlSize = .small
@@ -288,7 +302,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
         transportBar.wantsLayer = true
         transportBar.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.18).cgColor
-        [prevBtn, playBtn, nextBtn, loopBtn, spinner, addBtn, exportBtn].forEach(transportBar.addSubview)
+        [prevBtn, playBtn, nextBtn, loopBtn, spinner, addBtn].forEach(transportBar.addSubview)
         setTransport(playing: false, loop: false, hasTrack: false)
         looseBar.isHidden = true
         looseBar.button.target = self; looseBar.button.action = #selector(addLooseClicked)
@@ -296,11 +310,11 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         saveBar.button.target = self; saveBar.button.action = #selector(saveClicked)
         listHost.wantsLayer = true
         listHost.layer?.masksToBounds = true
-        scroll.autoresizingMask = [.width, .height]
-        listHost.addSubview(scroll)
-        [divider, nameField, switchBtn, countLabel, looseBar, saveBar, listHost, emptyHint, transportBar, dropHighlight].forEach(addSubview)
+        playlistsPane.addSubview(listsScroll)
+        [saveBar, looseBar, scroll, emptyHint].forEach(tracksPane.addSubview)
+        for pane in [playlistsPane, tracksPane] { pane.wantsLayer = true; listHost.addSubview(pane) }
+        [divider, nameField, countLabel, listsTitle, listsCount, headerLine, listHost, transportBar, dropHighlight].forEach(addSubview)
         registerForDraggedTypes([.fileURL, .URL, .string])
-        table.onDragExit = { [weak self] in self?.dropHighlight.hide() }
 
         NotificationCenter.default.addObserver(self, selector: #selector(libraryChanged), name: Library.changed, object: nil)
         // Only *your* scrolling sends live-scroll notifications; programmatic scrolls don't.
@@ -317,25 +331,18 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         // Short windows (the panel matches the video height) drop the extras progressively.
         let showHeader = H >= 60, showCount = H >= 170, showBar = H >= 90
         divider.frame = NSRect(x: 0, y: 0, width: 1, height: H)
-        [nameField, switchBtn].forEach { $0.isHidden = !showHeader }
-        countLabel.isHidden = !showCount
-        transportBar.isHidden = !showBar
-        // Playlist name sits on the same line as the window buttons, chevron right after it.
+        // Playlist name sits on the same line as the window buttons.
         let cy = H - titleRowCenterFromTop
-        let maxNameW = W - 14 - titleRowRightInset - 26
-        let textW = nameField.editingName ? maxNameW : min(maxNameW, ceil(nameField.attributedStringValue.size().width) + 6)
-        nameField.frame = NSRect(x: 14, y: cy - 9, width: textW, height: 18)
-        switchBtn.frame = NSRect(x: nameField.frame.maxX + 1, y: cy - 11, width: 22, height: 22)
-        countLabel.frame = NSRect(x: 15, y: cy - 28, width: W - 30, height: 15)
-        var top = showCount ? cy - 32 : cy - 14
-        for bar in [saveBar, looseBar] {
-            if !bar.isHidden && H >= 170 {
-                bar.frame = NSRect(x: 8, y: top - 46, width: W - 16, height: 42)
-                top -= 50
-            } else {
-                bar.frame = .zero
-            }
+        let maxNameW = W - 14 - titleRowRightInset - 4
+        for (f, c) in [(nameField, countLabel), (listsTitle, listsCount)] {
+            let textW = f.editingName ? maxNameW : min(maxNameW, ceil(f.attributedStringValue.size().width) + 6)
+            f.frame = NSRect(x: 14, y: cy - 9, width: textW, height: 18)
+            c.frame = NSRect(x: 15, y: cy - 28, width: W - 30, height: 15)
         }
+        let lineY = showCount ? cy - 36 : cy - 16
+        headerLine.frame = NSRect(x: 0, y: lineY, width: W, height: 1)
+        headerLine.isHidden = !showHeader
+        let top = lineY - 1
 
         let barH: CGFloat = showBar ? 34 : 0
         transportBar.frame = NSRect(x: 0, y: 0, width: W, height: barH)
@@ -344,21 +351,131 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         playBtn.frame = NSRect(x: 38, y: by, width: 28, height: bh)
         nextBtn.frame = NSRect(x: 68, y: by, width: 26, height: bh)
         loopBtn.frame = NSRect(x: 102, y: by, width: 26, height: bh)
-        exportBtn.frame = NSRect(x: W - 62, y: by - 1, width: 26, height: bh)
         addBtn.frame = NSRect(x: W - 36, y: by, width: 26, height: bh)
-        spinner.frame = NSRect(x: W - 86, y: by + 4, width: 16, height: 16)
+        spinner.frame = NSRect(x: W - 62, y: by + 4, width: 16, height: 16)
 
-        let hostFrame = NSRect(x: 4, y: barH, width: W - 8, height: max(0, top - barH))
-        if listHost.frame != hostFrame {
-            listHost.frame = hostFrame
-            if !swapping { scroll.frame = listHost.bounds }
+        listHost.frame = NSRect(x: 0, y: barH, width: W, height: max(0, top - barH))
+        let pw = listHost.bounds.width, ph = listHost.bounds.height
+        playlistsPane.frame = listHost.bounds
+        tracksPane.frame = listHost.bounds
+        applyProgress()
+        listsScroll.frame = NSRect(x: 4, y: 0, width: pw - 8, height: ph)
+        // the tracks pane: Save / Add strips on top, then the list
+        var paneTop = ph - 6
+        for bar in [saveBar, looseBar] {
+            if !bar.isHidden && H >= 170 {
+                bar.frame = NSRect(x: 8, y: paneTop - 42, width: pw - 16, height: 42)
+                paneTop -= 48
+            } else {
+                bar.frame = .zero
+            }
         }
+        scroll.frame = NSRect(x: 4, y: 0, width: pw - 8, height: max(0, paneTop + 4))
         table.tableColumns.first?.width = scroll.contentSize.width
-        emptyHint.frame = NSRect(x: 20, y: listHost.frame.midY - 45, width: W - 40, height: 90)
-        emptyHint.isHidden = mode == .playlists || !tracks.isEmpty || H < 170
-        exportBtn.isHidden = mode == .playlists
+        playlistTable.tableColumns.first?.width = listsScroll.contentSize.width
+        emptyHint.frame = NSRect(x: 16, y: scroll.frame.midY - 45, width: pw - 32, height: 90)
+        emptyHint.isHidden = !tracks.isEmpty || H < 170
         dropHighlight.frame = bounds
         dropHighlight.labelBottomInset = barH
+    }
+
+    /// Slides the panes and cross-fades the title row to `progress`.
+    private func applyProgress(animated: Bool = false) {
+        let p = max(0, min(1, progress))
+        let pw = listHost.bounds.width
+        let showHeader = bounds.height >= 60, showCount = bounds.height >= 170
+        listsTitle.isHidden = !showHeader; nameField.isHidden = !showHeader
+        listsCount.isHidden = !showCount; countLabel.isHidden = !showCount
+        // the faded-out title stays put but can't be clicked
+        nameField.onClick = p < 0.5 ? { [weak self] in self?.toggleMode() } : nil
+        listsTitle.onClick = p >= 0.5 ? { [weak self] in self?.toggleMode() } : nil
+        // while it moves both panes show; at rest only the one in view does (so clicks reach the right list)
+        let moving = animated || (p > 0 && p < 1)
+        playlistsPane.isHidden = !moving && p == 0
+        tracksPane.isHidden = !moving && p == 1
+        let duration = 0.32
+        let timing = CAMediaTimingFunction(controlPoints: 0.25, 0.9, 0.3, 1)   // quick start, soft landing
+        for (pane, tx) in [(playlistsPane, -(1 - p) * pw), (tracksPane, p * pw)] {
+            guard let layer = pane.layer else { continue }
+            let from = layer.presentation()?.affineTransform().tx ?? layer.affineTransform().tx
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            layer.setAffineTransform(CGAffineTransform(translationX: tx, y: 0))
+            CATransaction.commit()
+            if animated {
+                let a = CABasicAnimation(keyPath: "transform.translation.x")
+                a.fromValue = from; a.toValue = tx; a.duration = duration; a.timingFunction = timing
+                layer.add(a, forKey: "slide")
+            } else {
+                layer.removeAnimation(forKey: "slide")
+            }
+        }
+        if animated {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = duration
+                ctx.timingFunction = timing
+                [nameField, countLabel].forEach { $0.animator().alphaValue = 1 - p }
+                [listsTitle, listsCount].forEach { $0.animator().alphaValue = p }
+            }, completionHandler: { [weak self] in
+                guard let self, self.progress == p else { return }   // a newer move took over
+                self.playlistsPane.isHidden = p == 0
+                self.tracksPane.isHidden = p == 1
+            })
+        } else {
+            [nameField, countLabel].forEach { $0.alphaValue = 1 - p }
+            [listsTitle, listsCount].forEach { $0.alphaValue = p }
+        }
+    }
+
+    // MARK: Two-finger swipe between the panes
+
+    private var swipeStart: CGFloat = 0
+    private var swipeTracking = false
+    private var fallbackSwipeX: CGFloat = 0
+
+    /// A sideways two-finger swipe anywhere in the playlist: the panes follow your fingers, and let go past
+    /// halfway (or with a flick) to switch. Returns true if it took the event (vertical scrolls pass through).
+    func trackSwipe(_ e: NSEvent) -> Bool {
+        guard e.momentumPhase.isEmpty, !e.phase.isEmpty else { return swipeTracking }   // mouse wheels, momentum: not ours
+        let dx = e.scrollingDeltaX, dy = e.scrollingDeltaY
+        if swipeTracking { return true }
+        guard (e.phase == .began || e.phase == .changed), abs(dx) > abs(dy) * 1.5, abs(dx) > 0.5 else { return false }
+        guard NSEvent.isSwipeTrackingFromScrollEventsEnabled else {
+            // "Swipe between pages" is off in System Settings: switch once the swipe has gone far enough.
+            fallbackSwipeX = e.phase == .began ? dx : fallbackSwipeX + dx
+            let natural = e.isDirectionInvertedFromDevice ? 1.0 : -1.0
+            if abs(fallbackSwipeX) > 40 {
+                let towardLists = fallbackSwipeX * natural > 0
+                if towardLists != (mode == .playlists) { toggleMode() }
+                fallbackSwipeX = 0
+            }
+            return true
+        }
+        swipeTracking = true
+        swipeStart = progress
+        let atLists = mode == .playlists
+        // gestureAmount > 0: fingers moving right, revealing the pane on the left (all playlists)
+        e.trackSwipeEvent(options: [.lockDirection, .clampGestureAmount],
+                          dampenAmountThresholdMin: atLists ? -1 : 0, max: atLists ? 0 : 1) { [weak self] amount, phase, complete, _ in
+            guard let self else { return }
+            self.progress = max(0, min(1, self.swipeStart + amount))
+            self.applyProgress()
+            if complete {
+                self.swipeTracking = false
+                let target: Mode = self.progress > 0.5 ? .playlists : .tracks
+                self.setMode(target, animated: true)
+            } else if phase == .cancelled {
+                self.swipeTracking = false
+            }
+        }
+        return true
+    }
+
+    /// Tests: freeze the slide part-way (as a swipe would), to see the cross-fade.
+    func debugSetProgress(_ p: CGFloat) { progress = p; applyProgress() }
+
+    override func scrollWheel(with event: NSEvent) {
+        if trackSwipe(event) { return }
+        super.scrollWheel(with: event)
     }
 
     // MARK: Fix missing files
@@ -452,43 +569,36 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     private var isEditingSomething: Bool {
         if nameField.editingName { return true }
-        for r in 0..<table.numberOfRows {
-            if let c = table.view(atColumn: 0, row: r, makeIfNecessary: false) as? TrackCell, c.title.editingName { return true }
+        for t in [table, playlistTable] {
+            for r in 0..<t.numberOfRows {
+                if let c = t.view(atColumn: 0, row: r, makeIfNecessary: false) as? TrackCell, c.title.editingName { return true }
+            }
         }
         return false
     }
 
-    /// The ids of what the list shows (tracks or playlists), row by row.
-    private var rowIDs: [UUID] { mode == .playlists ? Library.shared.playlists.map(\.id) : tracks.map(\.id) }
-
     func reloadAll() {
-        let before = rowIDs
-        let selectedIDs = Set(table.selectedRowIndexes.compactMap { $0 < before.count ? before[$0] : nil })
+        func keep(_ t: NSTableView, _ ids: () -> [UUID], _ reload: () -> Void) {
+            let before = ids()
+            let sel = Set(t.selectedRowIndexes.compactMap { $0 < before.count ? before[$0] : nil })
+            reload()
+            t.selectRowIndexes(IndexSet(ids().enumerated().filter { sel.contains($0.element) }.map(\.offset)), byExtendingSelection: false)
+        }
         reloadHeader()
-        table.reloadData()
-        let idx = IndexSet(rowIDs.enumerated().filter { selectedIDs.contains($0.element) }.map(\.offset))
-        table.selectRowIndexes(idx, byExtendingSelection: false)
-        emptyHint.isHidden = mode == .playlists || !tracks.isEmpty || bounds.height < 160
+        keep(table, { tracks.map(\.id) }) { table.reloadData() }
+        keep(playlistTable, { Library.shared.playlists.map(\.id) }) { playlistTable.reloadData() }
+        emptyHint.isHidden = !tracks.isEmpty || bounds.height < 160
     }
 
     private func reloadHeader() {
         needsLayout = true
-        if mode == .playlists {
-            let n = Library.shared.playlists.count
-            nameField.stringValue = "Playlists"
-            nameField.toolTip = "Back to “\(Library.shared.playlist(shownID)?.name ?? "the playlist")”"
-            switchBtn.setSymbol("chevron.up", size: 10)
-            switchBtn.toolTip = nameField.toolTip
-            countLabel.stringValue = "\(n) playlist\(n == 1 ? "" : "s")"
-            addBtn.toolTip = "New playlist"
-            return
-        }
+        let n = Library.shared.playlists.count
+        listsCount.stringValue = "\(n) playlist\(n == 1 ? "" : "s")"
         let p = Library.shared.playlist(shownID)
         nameField.stringValue = p?.name ?? ""
-        nameField.toolTip = "Show all playlists"
-        switchBtn.setSymbol("chevron.down", size: 10)
-        switchBtn.toolTip = "Show all playlists"
-        addBtn.toolTip = "Add files… (paste links with ⌘V)"
+        nameField.toolTip = "Show all playlists (or swipe right with two fingers)"
+        listsTitle.toolTip = "Back to “\(p?.name ?? "the playlist")” (or swipe left with two fingers)"
+        addBtn.toolTip = mode == .playlists ? "New playlist" : "Add files… (paste links with ⌘V)"
         countLabel.stringValue = (p?.isUnsaved == true ? "Not saved · " : "") + Self.summary(p?.tracks ?? [])
         refreshLoose()
     }
@@ -507,7 +617,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private(set) var followsCurrent = true
 
     private var currentRow: Int? {
-        guard mode == .tracks, let id = delegate?.nowPlayingTrackID else { return nil }
+        guard let id = delegate?.nowPlayingTrackID else { return nil }
         return tracks.firstIndex { $0.id == id }
     }
 
@@ -542,22 +652,21 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         if let row = currentRow, isRowVisible(row) { followsCurrent = true }
         DispatchQueue.main.async { self.revealCurrent() }
         for r in 0..<table.numberOfRows {
-            if let c = table.view(atColumn: 0, row: r, makeIfNecessary: false) as? TrackCell { configureRow(c, row: r) }
+            if let c = table.view(atColumn: 0, row: r, makeIfNecessary: false) as? TrackCell { configure(c, row: r) }
+        }
+        for r in 0..<playlistTable.numberOfRows {
+            if let c = playlistTable.view(atColumn: 0, row: r, makeIfNecessary: false) as? TrackCell { configurePlaylist(c, row: r) }
         }
     }
 
     /// Shows a playlist's tracks. Doesn't play anything (pick a track for that), and isn't remembered:
     /// reopening the playlist pane shows what's playing.
     func show(playlist id: UUID, animated: Bool = false) {
-        let change = {
-            if self.mode != .tracks || self.shownID != id { self.table.deselectAll(nil) }   // a selection doesn't carry across lists
-            self.shownID = id
-            self.mode = .tracks
-            self.reloadAll()
-            self.refreshLoose()
-            self.followsCurrent = true
-        }
-        if animated && mode == .playlists { swap(forward: true, change) } else { change() }
+        if shownID != id { table.deselectAll(nil) }    // a selection doesn't carry across playlists
+        shownID = id
+        reloadAll()
+        followsCurrent = true
+        setMode(.tracks, animated: animated)
         DispatchQueue.main.async { self.revealCurrent(animated: false) }
     }
 
@@ -568,18 +677,18 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: All playlists
 
-    @objc private func toggleModeClicked() { toggleMode() }
+    func toggleMode() { setMode(mode == .playlists ? .tracks : .playlists, animated: true) }
 
-    func toggleMode() {
-        if mode == .playlists { show(playlist: shownID, animated: true); return }
-        swap(forward: false) {
-            self.table.deselectAll(nil)
-            self.mode = .playlists
-            self.reloadAll()
-            self.refreshLoose()
-            if let i = Library.shared.index(of: self.shownID) { self.table.selectRowIndexes([i], byExtendingSelection: false) }
+    private func setMode(_ m: Mode, animated: Bool) {
+        if m != mode { lastSwap = Date() }
+        mode = m
+        progress = m == .playlists ? 1 : 0
+        applyProgress(animated: animated && window != nil)
+        reloadHeader()
+        if m == .playlists, let i = Library.shared.index(of: shownID) {
+            playlistTable.selectRowIndexes([i], byExtendingSelection: false)
+            playlistTable.scrollRowToVisible(i)
         }
-        if let i = Library.shared.index(of: shownID) { table.scrollRowToVisible(i) }
     }
 
     private func open(playlistAt row: Int) {
@@ -587,40 +696,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         show(playlist: Library.shared.playlists[row].id, animated: true)
     }
 
-    private var swapping = false
     private var lastSwap = Date.distantPast
-
-    /// Fades and swipes the list: the old content slides out one way while the new one slides in.
-    /// Going into a playlist moves left (like going forward); out to all playlists moves right.
-    private func swap(forward: Bool, _ change: () -> Void) {
-        lastSwap = Date()
-        let old = scroll.bitmapImageRepForCachingDisplay(in: scroll.bounds)
-        if let old { scroll.cacheDisplay(in: scroll.bounds, to: old) }
-        change()
-        layoutSubtreeIfNeeded()
-        guard let old, window != nil, listHost.bounds.width > 0 else { return }
-        let snap = NSImageView(frame: listHost.bounds)
-        snap.image = { let i = NSImage(size: listHost.bounds.size); i.addRepresentation(old); return i }()
-        snap.imageScaling = .scaleNone
-        listHost.addSubview(snap)
-        let home = listHost.bounds
-        let dx = home.width * 0.4 * (forward ? 1 : -1)
-        swapping = true
-        scroll.frame = home.offsetBy(dx: dx, dy: 0)
-        scroll.alphaValue = 0
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.3
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            scroll.animator().frame = home
-            scroll.animator().alphaValue = 1
-            snap.animator().frame = home.offsetBy(dx: -dx, dy: 0)
-            snap.animator().alphaValue = 0
-        }, completionHandler: {
-            snap.removeFromSuperview()
-            self.swapping = false
-            self.scroll.frame = self.listHost.bounds
-        })
-    }
 
     private func configurePlaylist(_ cell: TrackCell, row: Int) {
         let all = Library.shared.playlists
@@ -643,21 +719,18 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         cell.needsLayout = true
     }
 
-    private func configureRow(_ cell: TrackCell, row: Int) {
-        if mode == .playlists { configurePlaylist(cell, row: row) } else { configure(cell, row: row) }
-    }
 
     private func showPlaylistContextMenu(row: Int) {
         let all = Library.shared.playlists
         guard row >= 0, row < all.count else { return }
-        table.selectRowIndexes([row], byExtendingSelection: false)
+        playlistTable.selectRowIndexes([row], byExtendingSelection: false)
         let p = all[row]
         var items: [IconMenu.Item] = (p.isUnsaved ? [
             .init(symbol: "square.and.arrow.down", tip: "Save to your playlists") { [weak self] _ in self?.save(p.id) },
         ] : []) + [
             .init(symbol: "list.bullet", tip: "Open") { [weak self] _ in self?.show(playlist: p.id, animated: true) },
             .init(symbol: "pencil", tip: "Rename") { [weak self] _ in
-                (self?.table.view(atColumn: 0, row: row, makeIfNecessary: true) as? TrackCell)?.title.beginRename() },
+                (self?.playlistTable.view(atColumn: 0, row: row, makeIfNecessary: true) as? TrackCell)?.title.beginRename() },
             .init(symbol: "square.and.arrow.up", tip: "Export…") { [weak self] _ in self?.export(p.id) },
         ]
         if let f = Library.shared.fileURL(for: p.id), FileManager.default.fileExists(atPath: f.path) {
@@ -670,13 +743,13 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         IconMenu.shared.show(items, at: NSEvent.mouseLocation)
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int { mode == .playlists ? Library.shared.playlists.count : tracks.count }
+    func numberOfRows(in tableView: NSTableView) -> Int { tableView === playlistTable ? Library.shared.playlists.count : tracks.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let cell = (tableView.makeView(withIdentifier: .init("cell"), owner: self) as? TrackCell) ?? {
             let c = TrackCell(); c.identifier = .init("cell"); return c
         }()
-        configureRow(cell, row: row)
+        if tableView === playlistTable { configurePlaylist(cell, row: row) } else { configure(cell, row: row) }
         return cell
     }
 
@@ -829,16 +902,15 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     /// A new playlist: shown in the playlists list with its name ready to type.
     @objc func newPlaylist() {
         let p = Library.shared.addPlaylist(named: Library.shared.nextPlaylistName())
-        let rename = {
-            guard let row = Library.shared.index(of: p.id) else { return }
-            self.table.selectRowIndexes([row], byExtendingSelection: false)
-            self.table.scrollRowToVisible(row)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                (self.table.view(atColumn: 0, row: row, makeIfNecessary: true) as? TrackCell)?.title.beginRename()
-            }
-        }
         shownID = p.id
-        if mode == .playlists { reloadAll(); rename() } else { toggleMode(); rename() }
+        reloadAll()
+        setMode(.playlists, animated: true)
+        guard let row = Library.shared.index(of: p.id) else { return }
+        playlistTable.selectRowIndexes([row], byExtendingSelection: false)
+        playlistTable.scrollRowToVisible(row)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            (self.playlistTable.view(atColumn: 0, row: row, makeIfNecessary: true) as? TrackCell)?.title.beginRename()
+        }
     }
     private func deletePlaylist(_ id: UUID) {
         guard let p = Library.shared.playlist(id) else { return }
@@ -1027,14 +1099,14 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     func refreshLoose() {
         let shown = Library.shared.playlist(shownID)
-        let unsaved = mode == .tracks && shown?.isUnsaved == true
+        let unsaved = shown?.isUnsaved == true
         if unsaved != !saveBar.isHidden { saveBar.isHidden = !unsaved; needsLayout = true }
         if unsaved, let shown {
             saveBar.set(title: shown.name, tip: "Keep “\(shown.name)” with your playlists")
         }
         let info = delegate?.looseInfo
         let wasHidden = looseBar.isHidden
-        looseBar.isHidden = info == nil || mode == .playlists
+        looseBar.isHidden = info == nil
         if let info {
             let name = Library.shared.playlist(shownID)?.name ?? "this playlist"
             looseBar.set(title: info.count > 1 ? "\(info.title) + \(info.count - 1) more" : info.title,
@@ -1071,7 +1143,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     /// Where something pasted with the pointer at this spot (window coordinates) would go: before the row
     /// under the pointer (after it, in its lower half), the end of the list below the last row, nil outside the list.
     func insertionRow(atWindowPoint wp: NSPoint) -> Int? {
-        guard !isHidden, mode == .tracks, listHost.frame.contains(convert(wp, from: nil)) else { return nil }
+        guard !isHidden, mode == .tracks, scroll.convert(scroll.bounds, to: self).contains(convert(wp, from: nil)) else { return nil }
         let tp = table.convert(wp, from: nil)
         let r = table.row(at: tp)
         guard r >= 0 else { return tracks.count }
@@ -1124,8 +1196,11 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
                    proposedDropOperation op: NSTableView.DropOperation) -> NSDragOperation {
-        if info.draggingSource as? NSTableView === table { tableView.setDropRow(row, dropOperation: .above); return .move }
-        if mode == .playlists {
+        if let src = info.draggingSource as? NSTableView, src === table || src === playlistTable {
+            guard src === tableView else { return [] }          // reorder within the same list only
+            tableView.setDropRow(row, dropOperation: .above); return .move
+        }
+        if tableView === playlistTable {
             // onto a playlist: add it there
             let all = Library.shared.playlists
             guard !all.isEmpty, let s = Self.dropSummary(info.draggingPasteboard), !s.isPlaylist else { dropHighlight.hide(); return [] }
@@ -1143,12 +1218,12 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
                    dropOperation: NSTableView.DropOperation) -> Bool {
         dropHighlight.hide()
         let pb = info.draggingPasteboard
-        if info.draggingSource as? NSTableView === table, mode == .playlists {
+        if tableView === playlistTable, info.draggingSource as? NSTableView === playlistTable {
             let rows = (pb.pasteboardItems ?? []).compactMap { $0.string(forType: reorderType).flatMap(Int.init) }
             Library.shared.movePlaylists(rows, to: row)
             return true
         }
-        if mode == .playlists {
+        if tableView === playlistTable {
             guard row >= 0, row < Library.shared.playlists.count else { return false }
             show(playlist: Library.shared.playlists[row].id, animated: true)
             return acceptExternal(pb, at: nil)
@@ -1259,6 +1334,16 @@ final class RoundedRowView: NSTableRowView {
 }
 
 /// Knob only — never draws the scroll track behind it.
+/// The lists' scroll views: up/down scrolls as usual; a sideways two-finger swipe goes to `onSwipe`
+/// (switching between all playlists and the shown playlist).
+final class PaneScrollView: NSScrollView {
+    var onSwipe: ((NSEvent) -> Bool)?
+    override func scrollWheel(with event: NSEvent) {
+        if onSwipe?(event) == true { return }
+        super.scrollWheel(with: event)
+    }
+}
+
 final class TracklessScroller: NSScroller {
     override class var isCompatibleWithOverlayScrollers: Bool { true }
     override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {}

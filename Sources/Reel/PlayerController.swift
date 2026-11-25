@@ -213,12 +213,15 @@ final class GestureOverlay: NSView {
 /// Views that handle right-click / right-drag themselves (icon menu, seek, volume).
 protocol RightClickHandling: NSView {}
 
-/// Reel's application object. While Reel isn't the active app, AppKit treats a click on its window as a
-/// "bring Reel forward" click and holds it back — so a right-click only focused Reel, and the menu needed a
-/// second click. Right-button events on the player go straight to it instead: the icon menu (or right-drag
-/// seek/volume) works on the first click, and Reel stays in the background.
+/// Reel's application object. Any click on Reel's window (left or right) brings Reel forward *and* does
+/// what the click does. While Reel isn't active, AppKit would otherwise spend a right-click just focusing
+/// the window (the menu needed a second click), so right-button events go straight to the player.
 final class ReelApplication: NSApplication {
     override func sendEvent(_ event: NSEvent) {
+        if !isActive, [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type), let w = event.window as? PlayerWindow {
+            activate(ignoringOtherApps: true)
+            w.makeKeyAndOrderFront(nil)
+        }
         if !isActive, [.rightMouseDown, .rightMouseDragged, .rightMouseUp].contains(event.type),
            let w = event.window as? PlayerWindow {
             w.sendEvent(event)

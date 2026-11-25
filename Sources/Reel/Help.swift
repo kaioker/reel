@@ -7,7 +7,7 @@ final class HelpWindow: NSObject {
 
     private static let sections: [(String, [(String, String)])] = [
         ("Playing", [
-            ("Click the video", "Play / pause — works even when Reel isn't the active app"),
+            ("Click the video", "Play / pause — and brings Reel forward if another app was active"),
             ("Double-click", "Full screen"),
             ("Space", "Play / pause"),
             ("← / →", "Back / forward 10 seconds"),
@@ -47,10 +47,11 @@ final class HelpWindow: NSObject {
             ("Struck-through tracks", "Stay in the playlist but next / previous / auto-advance pass over them; click to play anyway"),
             ("Grayed out + Fix", "The file isn't on this Mac — Fix to point at it (others in that folder relink too)"),
             ("", "The list follows the playing track unless you scroll somewhere else"),
-            ("Click the playlist's name", "Swaps to all your playlists (click again to go back). Click one to open it — it plays once you pick a track"),
+            ("Click the playlist's name", "Slides over to all your playlists (click again to go back). Click one to open it — it plays once you pick a track"),
+            ("Two-finger swipe ← →", "On the playlist: slide between the shown playlist and all playlists"),
             ("Right-click a playlist", "Rename, export, show in Finder, clear or delete · drag to reorder · drop files on one to add them there"),
             ("⌘N  or  + in that list", "New playlist, ready to name"),
-            ("Bottom row", "⏮ ⏯ ⏭ 🔁 for what's playing (🔁 lights up when looping) · export · + add files"),
+            ("Bottom row", "⏮ ⏯ ⏭ 🔁 for what's playing (🔁 lights up when looping) · + add files (in the playlists list: new playlist)"),
         ]),
         ("Adding media", [
             ("Drop on the video", "Plays it now, without adding it to a playlist"),
@@ -66,7 +67,7 @@ final class HelpWindow: NSObject {
             ("Audio only", "Shows the waveform"),
         ]),
         ("Sharing playlists", [
-            ("Export button", "Saves the shown playlist as a .reel file (name, link, loop, skip per track)"),
+            ("Export", "Right-click a playlist in the playlists list → Export… saves it as a .reel file (name, link, loop, skip per track)"),
             ("Where they live", "Each playlist is a .reel file in ~/Library/Application Support/Reel/Playlists"),
             ("Open a .reel file", "Double-click it: it plays right away, marked Not saved — Save keeps it with your playlists"),
             ("Drop a .reel file", "Asks, like a YouTube playlist: play without saving, save as a new playlist, or add its items to the one shown"),

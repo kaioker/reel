@@ -420,23 +420,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             func state() -> String {
                 let playing = pl.nowPlayingTrackID.flatMap { id in Library.shared.playlists.flatMap(\.tracks).first { $0.id == id }?.displayName } ?? "-"
-                return "mode=\(panel.mode == .playlists ? "playlists" : "tracks") title='\(panel.nameField.stringValue)' shown=\(Library.shared.playlist(panel.shownID)?.name ?? "?") rows=\(panel.table.numberOfRows) playing=\(playing)"
+                let lists = panel.mode == .playlists
+                return "mode=\(lists ? "playlists" : "tracks") title='\(lists ? "Playlists" : panel.nameField.stringValue)' shown=\(Library.shared.playlist(panel.shownID)?.name ?? "?") rows=\(lists ? panel.playlistTable.numberOfRows : panel.table.numberOfRows) playing=\(playing)"
             }
             let lib = Library.shared
             let steps: [(Double, () -> Void)] = [
                 (1.0, { let a = lib.playlists[0]; pl.panelPlay(playlist: a.id, track: a.tracks[1].id); pl.setPanel(open: true)
                         print("1. playing 2nd track of \(a.name), opened pane: \(state())") }),
-                (1.0, { snap("1-tracks"); panel.nameField.onClick?() }),
-                (0.12, { snap("2-mid-swipe") }),
+                (1.0, { snap("1-tracks"); panel.debugSetProgress(0.8) }),
+                (0.3, { snap("2-mid-swipe"); panel.debugSetProgress(0); panel.nameField.onClick?() }),
                 (0.6, { snap("3-playlists"); print("2. clicked the title: \(state())")
-                        panel.table.onPlay?(1) }),
+                        panel.playlistTable.onPlay?(1) }),
                 (0.6, { snap("4-other-playlist"); print("3. clicked playlist 2: \(state())  (still playing the same track)") }),
                 (0.3, { pl.togglePlaylist() }),
                 (0.8, { pl.togglePlaylist() }),
                 (0.8, { snap("5-reopened"); print("4. closed and reopened the pane: \(state())")
                         panel.newPlaylist() }),
                 (0.9, { snap("6-new-playlist")
-                        let editing = (0..<panel.table.numberOfRows).contains { (panel.table.view(atColumn: 0, row: $0, makeIfNecessary: false) as? TrackCell)?.title.editingName == true }
+                        let editing = (0..<panel.playlistTable.numberOfRows).contains { (panel.playlistTable.view(atColumn: 0, row: $0, makeIfNecessary: false) as? TrackCell)?.title.editingName == true }
                         print("5. new playlist: \(state()) name being typed=\(editing)")
                         NSApp.terminate(nil) }),
             ]
@@ -899,8 +900,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if parts.contains("panel") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { self.player.setPanel(open: true) }
             }
+            if parts.contains("lists") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { self.player.panel.toggleMode() }
+            }
             if let width = parts.compactMap({ Double($0) }).first {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
                     let w = self.player.window
                     let sz = self.player.windowWillResize(w, to: NSSize(width: width, height: width))   // the real resize rule keeps the shape
                     w.setFrame(NSRect(origin: .zero, size: sz), display: true); w.center()
