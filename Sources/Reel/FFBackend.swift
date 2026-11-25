@@ -32,6 +32,8 @@ final class FFBackend: NSObject, PlayerBackend {
     /// The file's audio streams (FFmpeg stream index, name) and the one playing.
     private var audioStreams: [(index: Int32, name: String)] = []
     private var currentAudio: Int32 = -1
+    /// The video is being decoded by the Mac's media engine (VideoToolbox) rather than the processor.
+    fileprivate(set) var decodingOnHardware = false
 
     override init() {
         super.init()
@@ -59,6 +61,7 @@ final class FFBackend: NSObject, PlayerBackend {
     func start(url: URL, audioStream: Int32? = nil, at time: Double? = nil) {
         self.url = url
         if audioStream == nil { audioStreams = []; currentAudio = -1 }
+        decodingOnHardware = false
         stopSession()
         flushRenderers()
         clock.setRate(0, time: .zero)
@@ -222,6 +225,10 @@ private final class FFSession {
     private var pool: CVPixelBufferPool?
     private var poolSize = CGSize.zero
     private var videoFormat: CMVideoFormatDescription?
+    /// VideoToolbox (the Mac's media engine), shared by this session's video decoder.
+    private var hwDevice: UnsafeMutablePointer<AVBufferRef>?
+    /// Frames are coming from the hardware decoder.
+    private(set) var hardwareFrames = false
     private var alpha = false
     private var dropBefore: Double = -1
     private var lastVideoPTS: Double = -1, lastAudioPTS: Double = -1
@@ -342,7 +349,8 @@ private final class FFSession {
             if alphaTag && par.pointee.codec_id == AV_CODEC_ID_VP8 { codec = avcodec_find_decoder_by_name("libvpx") }
             if codec == nil { codec = avcodec_find_decoder(par.pointee.codec_id) }
             alpha = alphaTag && codec != nil
-            vctx = openDecoder(codec, par)
+            // Hardware first (not for transparent video: VideoToolbox drops the alpha plane), software if it can't.
+            vctx = (alpha ? nil : openHardwareDecoder(codec, par)) ?? openDecoder(codec, par)
             vtb = st.pointee.time_base
             size = CGSize(width: Int(par.pointee.width), height: Int(par.pointee.height))
             let fr = st.pointee.avg_frame_rate
@@ -369,6 +377,27 @@ private final class FFSession {
         guard let codec, var c = avcodec_alloc_context3(codec) else { return nil }
         avcodec_parameters_to_context(c, par)
         c.pointee.thread_count = 0
+        if avcodec_open2(c, codec, nil) < 0 { var p: UnsafeMutablePointer<AVCodecContext>? = c; avcodec_free_context(&p); return nil }
+        _ = c
+        return c
+    }
+
+    /// A decoder that hands frames to VideoToolbox, if this codec can use it (nil: decode in software).
+    private func openHardwareDecoder(_ codec: UnsafePointer<AVCodec>?, _ par: UnsafeMutablePointer<AVCodecParameters>?) -> UnsafeMutablePointer<AVCodecContext>? {
+        guard let codec, ProcessInfo.processInfo.environment["REEL_SOFTWARE_DECODE"] == nil else { return nil }
+        var i: Int32 = 0, supported = false
+        while let cfg = avcodec_get_hw_config(codec, i) {
+            if cfg.pointee.device_type == AV_HWDEVICE_TYPE_VIDEOTOOLBOX && Int(cfg.pointee.methods) & Int(AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX) != 0 {
+                supported = true; break
+            }
+            i += 1
+        }
+        guard supported else { return nil }
+        if hwDevice == nil, av_hwdevice_ctx_create(&hwDevice, AV_HWDEVICE_TYPE_VIDEOTOOLBOX, nil, nil, 0) < 0 { return nil }
+        guard var c = avcodec_alloc_context3(codec) else { return nil }
+        avcodec_parameters_to_context(c, par)
+        c.pointee.hw_device_ctx = av_buffer_ref(hwDevice)
+        reel_use_videotoolbox_format(c)
         if avcodec_open2(c, codec, nil) < 0 { var p: UnsafeMutablePointer<AVCodecContext>? = c; avcodec_free_context(&p); return nil }
         _ = c
         return c
@@ -420,6 +449,13 @@ private final class FFSession {
     private func emitVideo(_ f: UnsafeMutablePointer<AVFrame>) {
         let t = seconds(f.pointee.best_effort_timestamp, vtb)
         guard t >= 0, t >= dropBefore - 0.001 else { return }
+        // Decoded by VideoToolbox: the frame already is a CVPixelBuffer the display layer can show as-is.
+        if f.pointee.format == AV_PIX_FMT_VIDEOTOOLBOX.rawValue, let raw = f.pointee.data.3 {
+            let pb = Unmanaged<CVPixelBuffer>.fromOpaque(UnsafeRawPointer(raw)).takeUnretainedValue()
+            if !hardwareFrames { hardwareFrames = true; onMain { $0.decodingOnHardware = true } }
+            enqueue(pb, at: t)
+            return
+        }
         let w = Int(f.pointee.width), h = Int(f.pointee.height)
         guard w > 0, h > 0, let pb = makePixelBuffer(w, h) else { return }
 
@@ -446,7 +482,10 @@ private final class FFSession {
             vImagePremultiplyData_RGBA8888(&buf, &buf, vImage_Flags(kvImageNoFlags))   // alpha is last either way
         }
         CVPixelBufferUnlockBaseAddress(pb, [])
+        enqueue(pb, at: t)
+    }
 
+    private func enqueue(_ pb: CVPixelBuffer, at t: Double) {
         if videoFormat == nil || !CMVideoFormatDescriptionMatchesImageBuffer(videoFormat!, imageBuffer: pb) {
             CMVideoFormatDescriptionCreateForImageBuffer(allocator: nil, imageBuffer: pb, formatDescriptionOut: &videoFormat)
         }
@@ -534,5 +573,6 @@ private final class FFSession {
         if fmt != nil { avformat_close_input(&fmt) }
         if sws != nil { sws_freeContext(sws); sws = nil }
         if swr != nil { swr_free(&swr) }
+        if hwDevice != nil { av_buffer_unref(&hwDevice) }
     }
 }

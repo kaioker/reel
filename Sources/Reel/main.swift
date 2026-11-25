@@ -47,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let u = ProcessInfo.processInfo.environment["REEL_PLAY"] {
             if u == "first" { player.nextTrack() } else { player.panel.add(text: u, at: nil, playFirst: true) }
         }
-        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST", "REEL_REELFILE_TEST", "REEL_ASK_TEST", "REEL_EXTRAS_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
+        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST", "REEL_REELFILE_TEST", "REEL_ASK_TEST", "REEL_EXTRAS_TEST", "REEL_SUBPREF_TEST", "REEL_HW_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
         if !testing { NSApp.activate(ignoringOtherApps: true) }
         if let dir = ProcessInfo.processInfo.environment["REEL_DOT_TEST"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
@@ -419,6 +419,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             ]
             var t = 0.0
             for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
+        }
+        if ProcessInfo.processInfo.environment["REEL_SUBPREF_TEST"] != nil {
+            // Subtitles start off; your choice (or off) is remembered per track. Playlist: Two languages.mkv, Sidecar.mp4, Aurora
+            let pl = self.player!, x = pl.extras, p = Library.shared.playlists[0]
+            func t(_ n: String) -> UUID { p.tracks.first { $0.displayName == n }!.id }
+            func state() -> String { "choices \(x.subtitleChoices.map(\.name)), showing: \(x.subtitleChoice.map { x.subtitleChoices[$0].name } ?? "off")" }
+            let steps: [(Double, () -> Void)] = [
+                (0.8, { pl.panelPlay(playlist: p.id, track: t("Sidecar")) }),
+                (1.2, { print("1. Sidecar.mp4 (with Sidecar.srt beside it), first time: \(state())"); x.selectSubtitle(0)
+                        pl.panelPlay(playlist: p.id, track: t("Two languages")) }),
+                (2.0, { print("2. MKV, first time: \(state())"); if let i = x.subtitleChoices.firstIndex(where: { $0.name == "French" }) { x.selectSubtitle(i) }
+                        pl.panelPlay(playlist: p.id, track: t("Aurora")) }),
+                (1.0, { pl.panelPlay(playlist: p.id, track: t("Sidecar")) }),
+                (1.2, { print("3. back to Sidecar.mp4: \(state())"); x.toggleSubtitles()
+                        pl.panelPlay(playlist: p.id, track: t("Two languages")) }),
+                (2.0, { print("4. back to the MKV: \(state())"); pl.panelPlay(playlist: p.id, track: t("Sidecar")) }),
+                (1.2, { print("5. Sidecar.mp4 after turning them off with V: \(state())")
+                        pl.panelPlay(playlist: p.id, track: t("Aurora")) }),
+                (1.0, { x.toggleSubtitles(); print("6. V on Aurora (no subtitles): \(pl.toast.text)") }),
+                (2.0, { print("   then: \(pl.toast.text), \(state())"); fflush(stdout); NSApp.terminate(nil) }),
+            ]
+            var tt = 0.0
+            for (d, f) in steps { tt += d; DispatchQueue.main.asyncAfter(deadline: .now() + tt) { f(); fflush(stdout) } }
+        }
+        if ProcessInfo.processInfo.environment["REEL_HW_TEST"] != nil {
+            // Plays the first track; reports which engine and whether the video is decoded on the Mac's media engine.
+            let pl = self.player!, p = Library.shared.playlists[0]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { pl.panelPlay(playlist: p.id, track: p.tracks[0].id) }
+            var t0 = 0.0
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { t0 = pl.backend?.currentTime ?? 0 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 13.0) {
+                let ff = pl.backend as? FFBackend
+                print("engine: \(pl.backend.map { String(describing: type(of: $0)) } ?? "-"), hardware decoding: \(ff?.decodingOnHardware ?? false)")
+                print(String(format: "played %.1f s of video in 10 s", (pl.backend?.currentTime ?? 0) - t0))
+                fflush(stdout); NSApp.terminate(nil)
+            }
         }
         if let path = ProcessInfo.processInfo.environment["REEL_SUBPROBE"] {
             let u = URL(fileURLWithPath: path)

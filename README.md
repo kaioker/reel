@@ -45,13 +45,13 @@ Most players want to be the main window. Reel is built to sit in a corner while 
 | **YouTube** | Videos and whole playlists (Reel asks: play without saving, save as a new playlist, add the videos to the one you're viewing, or only this video) |
 | **Bilibili** | Videos |
 | **WebM, including transparent** | See-through video floats over your desktop, with glass behind it only while the playlist or window buttons show |
-| **Unusual formats** | Anything macOS can't decode plays through Reel's built-in FFmpeg decoder. No conversion and no extra installs. |
+| **Unusual formats** | Anything macOS can't decode plays through Reel's built-in FFmpeg decoder, using the Mac's video hardware where it can. No conversion and no extra installs. |
 
 ### Watching
 
-- **Subtitles:** a `.srt`, `.vtt` or `.ass` file named like the video shows by itself. Subtitles inside MKV and MP4
-  files, including picture subtitles from Blu-ray and DVD rips, and YouTube's captions are in Playback → Subtitles.
-  Drop a subtitle file on the video to use it.
+- **Subtitles,** off until you pick some: `.srt`, `.vtt` and `.ass` files named like the video, subtitles inside MKV
+  and MP4 files (including picture subtitles from Blu-ray and DVD rips) and YouTube's captions, all in
+  Playback → Subtitles. Reel remembers your choice for each track. Drop a subtitle file on the video to use it.
 - **Audio tracks:** switch language or commentary in files that have more than one.
 - **Speed** from ¼× to 2× with pitch kept natural, and **frame-by-frame** stepping.
 - **Long videos pick up where you stopped,** even after playing other things in between.

@@ -72,7 +72,7 @@ final class HelpWindow: NSObject {
             ("Unusual formats", "Videos macOS can't decode play through Reel's built-in FFmpeg decoder"),
             ("Audio only", "Shows the waveform"),
             ("Long videos", "Over 10 minutes: stop part-way and it picks up there next time"),
-            ("Subtitles", "A .srt / .vtt / .ass file named like the video shows by itself; subtitles inside MKV / MP4 files and YouTube captions are in Playback → Subtitles (V turns them on or off). Drop a subtitle file on the video to use it"),
+            ("Subtitles", "Off until you pick some: Playback → Subtitles lists .srt / .vtt / .ass files named like the video, subtitles inside MKV / MP4 files and YouTube captions (V turns them on or off). Your choice is remembered for each track. Drop a subtitle file on the video to use it"),
             ("Audio tracks", "Files with more than one (languages, commentary): Playback → Audio Track"),
             ("Stop After This Track", "Playback menu: finishes what's playing, then stops"),
         ]),

@@ -131,12 +131,47 @@ final class PlaybackExtras: NSObject, NSMenuDelegate {
     private var subtitleTimer: Timer?
     private var loadToken = 0
     let overlay = SubtitleOverlay()
+    /// The playing track's source: subtitle choices are remembered per track (any playlist it's in).
+    private var trackKey: String?
 
-    /// A new track: look for subtitle files beside it (shown straight away) and subtitles inside it.
+    // Subtitles start off. What you pick for a track (or turning them off) is remembered for that track.
+    private static let prefsKey = "subtitlePrefs"
+    private func savedPreference() -> String? {
+        trackKey.flatMap { (UserDefaults.standard.dictionary(forKey: Self.prefsKey) as? [String: String])?[$0] }
+    }
+    private func savePreference(_ choice: Int?) {
+        guard let trackKey else { return }
+        var d = UserDefaults.standard.dictionary(forKey: Self.prefsKey) as? [String: String] ?? [:]
+        d[trackKey] = choice.map { Self.identity(subtitleChoices[$0].source) }
+        UserDefaults.standard.set(d, forKey: Self.prefsKey)
+    }
+    private static func identity(_ s: SubtitleSource) -> String {
+        switch s {
+        case .file(let u): return "file:" + u.path
+        case .embedded(_, let i): return "stream:\(i)"
+        case .youtube(let c): return "yt:" + c
+        }
+    }
+    /// Puts back the subtitles you chose for this track, once they're found (files, streams and captions arrive separately).
+    private func restorePreference() {
+        guard subtitleChoice == nil, let want = savedPreference() else { return }
+        if let i = subtitleChoices.firstIndex(where: { Self.identity($0.source) == want }) {
+            selectSubtitle(i, quiet: true, remember: false)
+        } else if want.hasPrefix("file:") {
+            let u = URL(fileURLWithPath: String(want.dropFirst(5)))
+            guard FileManager.default.fileExists(atPath: u.path) else { return }
+            subtitleChoices.append((Self.fileName(u, base: nil), .file(u)))      // a file you added for this track
+            selectSubtitle(subtitleChoices.count - 1, quiet: true, remember: false)
+        }
+    }
+
+    /// A new track: find subtitle files beside it and subtitles inside it — all off unless you chose them for this track.
     func trackChanged(_ t: Track) {
         loadToken += 1
+        trackKey = t.source
         subtitleChoices = []; subtitleChoice = nil; lastSubtitleChoice = nil
         cues = []; overlay.show(nil); stopSubtitleTimer()
+        if t.kind == .youtube { restorePreference() }
         guard (t.kind == .local || t.kind == .remote), let url = t.url else { return }
         if url.isFileURL {
             let dir = url.deletingLastPathComponent(), base = url.deletingPathExtension().lastPathComponent.lowercased()
@@ -145,14 +180,15 @@ final class PlaybackExtras: NSObject, NSMenuDelegate {
                 .filter { let n = $0.deletingPathExtension().lastPathComponent.lowercased(); return n == base || n.hasPrefix(base + ".") }
                 .sorted { $0.lastPathComponent.count < $1.lastPathComponent.count }
             for f in files { subtitleChoices.append((Self.fileName(f, base: base), .file(f))) }
-            if !subtitleChoices.isEmpty { selectSubtitle(0, quiet: true) }      // a matching subtitle file: show it
         }
+        restorePreference()
         let token = loadToken
         DispatchQueue.global(qos: .utility).async {
             let streams = SubtitleReader.streams(in: url)
             DispatchQueue.main.async {
                 guard token == self.loadToken, !streams.isEmpty else { return }
                 self.subtitleChoices += streams.map { ($0.name + ($0.isPicture ? " (picture)" : ""), .embedded(url, index: $0.index)) }
+                self.restorePreference()
             }
         }
     }
@@ -161,6 +197,7 @@ final class PlaybackExtras: NSObject, NSMenuDelegate {
     func youtubeCaptions(_ list: [(code: String, name: String)]) {
         let keep = subtitleChoices.filter { if case .youtube = $0.source { return false } else { return true } }
         subtitleChoices = keep + list.map { ($0.name, .youtube(code: $0.code)) }
+        restorePreference()
     }
 
     /// A subtitle file dropped on the video or picked with Add Subtitle File…: use it for what's playing.
@@ -170,7 +207,9 @@ final class PlaybackExtras: NSObject, NSMenuDelegate {
         selectSubtitle(subtitleChoices.count - 1)
     }
 
-    func selectSubtitle(_ i: Int?, quiet: Bool = false) {
+    /// `remember`: it's your choice for this track (not a restore), so keep it for next time.
+    func selectSubtitle(_ i: Int?, quiet: Bool = false, remember: Bool = true) {
+        if remember { savePreference(i.flatMap { $0 >= 0 && $0 < subtitleChoices.count ? $0 : nil }) }
         if let old = subtitleChoice, case .youtube = subtitleChoices[old].source, i == nil || i != old { player.ytCaptions(nil) }
         guard let i, i >= 0, i < subtitleChoices.count else {
             if subtitleChoice != nil { lastSubtitleChoice = subtitleChoice }
@@ -199,8 +238,8 @@ final class PlaybackExtras: NSObject, NSMenuDelegate {
                 DispatchQueue.main.async {
                     guard let self, token == self.loadToken, self.subtitleChoice == i else { return }
                     self.cues = read
-                    if read.isEmpty { self.player.toast.show("No subtitles found in that", symbol: "exclamationmark.triangle.fill", sticky: false) }
-                    else if remote && !quiet { self.player.toast.show("Subtitles: \(choice.name)", symbol: "captions.bubble.fill", sticky: false) }
+                    if read.isEmpty { self.warnNoSubtitles("No subtitles found in “\(choice.name)”") ; return }
+                    if remote && !quiet { self.player.toast.show("Subtitles: \(choice.name)", symbol: "captions.bubble.fill", sticky: false) }
                     self.startSubtitleTimer()
                 }
             }
@@ -210,8 +249,19 @@ final class PlaybackExtras: NSObject, NSMenuDelegate {
     /// V: subtitles on (the last ones used, or the first) / off.
     func toggleSubtitles() {
         if subtitleChoice != nil { selectSubtitle(nil); return }
-        guard !subtitleChoices.isEmpty else { player.toast.show("No subtitles for this", symbol: "captions.bubble", sticky: false); return }
+        guard !subtitleChoices.isEmpty else { warnNoSubtitles("No subtitles for this video"); return }
         selectSubtitle(lastSubtitleChoice.flatMap { $0 < subtitleChoices.count ? $0 : nil } ?? 0)
+    }
+
+    /// Turned on, but there's nothing to show: say so, then switch them off again (and keep that for this track).
+    private func warnNoSubtitles(_ message: String) {
+        player.toast.show(message, symbol: "exclamationmark.triangle.fill", sticky: false)
+        let token = loadToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            guard token == self.loadToken else { return }          // a different track by now
+            self.selectSubtitle(nil, quiet: true)
+            self.player.toast.show("Subtitles off", symbol: "captions.bubble", sticky: false)
+        }
     }
 
     private static func fileName(_ f: URL, base: String?) -> String {
