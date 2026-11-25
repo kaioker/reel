@@ -70,8 +70,8 @@ final class HoverHotkeys {
     static func shouldHandle(keyCode: UInt16, flags: CGEventFlags, reelIsActive: Bool, pointerOverPlayer: Bool) -> Bool {
         guard !reelIsActive, pointerOverPlayer else { return false }
         if flags.contains(.maskCommand) || flags.contains(.maskControl) || flags.contains(.maskAlternate) { return false }
-        // Reel's hotkeys: Space, ← → ↑ ↓, Esc, F, L, M (by key position)
-        return [49, 123, 124, 125, 126, 53, 3, 37, 46].contains(keyCode)
+        // Reel's hotkeys: Space, ← → ↑ ↓, Esc, F, L, M, S, V, [ ] =, , . (by key position)
+        return [49, 123, 124, 125, 126, 53, 3, 37, 46, 1, 9, 33, 30, 24, 43, 47].contains(keyCode)
     }
 
     /// Runs on the main thread (the tap's run-loop source is on the main run loop).
@@ -81,7 +81,7 @@ final class HoverHotkeys {
         guard HoverHotkeys.shouldHandle(keyCode: code, flags: event.flags, reelIsActive: NSApp.isActive,
                                         pointerOverPlayer: player.isPointerOverPlayer()) else { return false }
         // letters by key position, so F / L / M work even if the event carries no characters
-        let byPosition: [UInt16: String] = [3: "f", 37: "l", 46: "m"]
+        let byPosition: [UInt16: String] = [3: "f", 37: "l", 46: "m", 1: "s", 9: "v", 33: "[", 30: "]", 24: "=", 43: ",", 47: "."]
         let chars = NSEvent(cgEvent: event)?.charactersIgnoringModifiers.flatMap { $0.isEmpty ? nil : $0 } ?? byPosition[code]
         return player.performHotkey(keyCode: code, shift: event.flags.contains(.maskShift), chars: chars)
     }

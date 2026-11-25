@@ -11,6 +11,8 @@ protocol BackendDelegate: AnyObject {
     func backendTransparent(_ transparent: Bool)
     func backendAudioOnly()
     func backendNeedsWebFallback()
+    /// The audio tracks / captions on offer changed (they're found a moment after loading).
+    func backendTracksChanged()
 }
 
 protocol PlayerBackend: AnyObject {
@@ -28,6 +30,20 @@ protocol PlayerBackend: AnyObject {
     func seek(to seconds: Double)
     func setVolume(_ v: Float)
     func stop()
+    /// Playback speed (1 = normal). Kept across tracks.
+    var rate: Float { get set }
+    /// One frame forward (+1) or back (-1); pauses.
+    func step(frames: Int)
+    /// Alternative audio tracks in the file (languages, commentary); empty when there's just one / no choice.
+    var audioTrackNames: [String] { get }
+    var selectedAudioTrack: Int { get }
+    func selectAudioTrack(_ i: Int)
+}
+
+extension PlayerBackend {
+    var audioTrackNames: [String] { [] }
+    var selectedAudioTrack: Int { 0 }
+    func selectAudioTrack(_ i: Int) {}
 }
 
 // MARK: - AVPlayer (local files, direct URLs, HLS)
@@ -63,6 +79,10 @@ final class AVBackend: NSObject, PlayerBackend {
     private var rateObs: NSKeyValueObservation?
     private var endObs: NSObjectProtocol?
     private(set) var hasVideo = true
+    var rate: Float = 1 {
+        didSet { player.defaultRate = rate; if player.timeControlStatus != .paused { player.rate = rate } }
+    }
+    private var audioGroup: AVMediaSelectionGroup?
 
     override init() {
         super.init()
@@ -100,6 +120,14 @@ final class AVBackend: NSObject, PlayerBackend {
         if let headers { opts["AVURLAssetHTTPHeaderFieldsKey"] = headers }
         let asset = AVURLAsset(url: url, options: opts)
         let item = AVPlayerItem(asset: asset)
+        item.audioTimePitchAlgorithm = .spectral        // sped-up / slowed-down speech keeps its pitch
+        audioGroup = nil
+        Task { @MainActor [weak self] in
+            let g = try? await asset.loadMediaSelectionGroup(for: .audible)
+            guard let self, self.player.currentItem === item else { return }
+            self.audioGroup = (g?.options.count ?? 0) > 1 ? g : nil
+            self.delegate?.backendTracksChanged()
+        }
         itemObs = [
             item.observe(\.status) { [weak self] item, _ in
                 DispatchQueue.main.async {
@@ -162,6 +190,25 @@ final class AVBackend: NSObject, PlayerBackend {
         player.pause()
         player.replaceCurrentItem(with: nil)
     }
+    func step(frames: Int) {
+        player.pause()
+        player.currentItem?.step(byCount: frames)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.delegate?.backendTick(); self.delegate?.backendStateChanged() }
+    }
+    var audioTrackNames: [String] { audioGroup?.options.map(Self.name) ?? [] }
+    var selectedAudioTrack: Int {
+        guard let g = audioGroup, let o = player.currentItem?.currentMediaSelection.selectedMediaOption(in: g) else { return 0 }
+        return g.options.firstIndex(of: o) ?? 0
+    }
+    func selectAudioTrack(_ i: Int) {
+        guard let g = audioGroup, i >= 0, i < g.options.count else { return }
+        player.currentItem?.select(g.options[i], in: g)
+    }
+    private static func name(_ o: AVMediaSelectionOption) -> String {
+        let lang = o.locale.flatMap { Locale.current.localizedString(forIdentifier: $0.identifier) }
+        let n = o.displayName
+        return lang != nil && !n.localizedCaseInsensitiveContains(lang!) ? "\(n) (\(lang!))" : n
+    }
 }
 
 // MARK: - HTML5 <video> in WebKit (WebM and other formats AVFoundation can't open)
@@ -177,6 +224,8 @@ final class HTMLVideoBackend: NSObject, PlayerBackend, WKScriptMessageHandler {
     private var volume: Float = 1
     let hasVideo = true
     var isPlaying: Bool { playing }
+    var rate: Float = 1 { didSet { js("v.playbackRate=\(rate); v.defaultPlaybackRate=\(rate)") } }
+    func step(frames: Int) { js("v.pause(); v.currentTime=Math.max(0, v.currentTime + \(Double(frames) / 30))") }
 
     override init() {
         let cfg = WKWebViewConfiguration()
@@ -200,7 +249,7 @@ final class HTMLVideoBackend: NSObject, PlayerBackend, WKScriptMessageHandler {
         <script>
         const v=document.getElementById('v');
         function post(o){ try{ webkit.messageHandlers.reel.postMessage(o) }catch(e){} }
-        v.volume=\(volume);
+        v.volume=\(volume); v.defaultPlaybackRate=\(rate); v.playbackRate=\(rate);
         v.addEventListener('loadedmetadata',()=>post({type:'size', w:v.videoWidth, h:v.videoHeight}));
         v.addEventListener('ended',()=>post({type:'ended'}));
         v.addEventListener('error',()=>post({type:'error', code:(v.error&&v.error.code)||0}));
@@ -268,6 +317,15 @@ final class YouTubeBackend: NSObject, PlayerBackend, WKScriptMessageHandler, WKN
     private var pending: [String] = []
     private var volume: Float = 1
     let hasVideo = true
+    var rate: Float = 1 { didSet { js("reelRate(\(rate))") } }
+    func step(frames: Int) { pause(); seek(to: max(0, currentTime + Double(frames) / 30)) }
+    /// YouTube's own captions for this video: (language code, name). Found once it starts playing.
+    private(set) var captionTracks: [(code: String, name: String)] = []
+    private(set) var captionCode: String?
+    func setCaptions(_ code: String?) {
+        captionCode = code
+        js(code.map { "reelCaption('\($0.replacingOccurrences(of: "'", with: ""))')" } ?? "reelCaptionOff()")
+    }
 
     /// YouTube requires a Referer identifying the embedding app (otherwise error 152/153).
     static let origin = "https://reel.player.app"
@@ -296,9 +354,12 @@ final class YouTubeBackend: NSObject, PlayerBackend, WKScriptMessageHandler, WKN
 
     func load(_ track: Track) {
         currentTime = 0; duration = track.duration ?? 0
+        captionTracks = []; captionCode = nil
+        delegate?.backendTracksChanged()
         let id = track.source.replacingOccurrences(of: "'", with: "")
         js("reelLoad('\(id)', \(autoplay))")
         js("reelVolume(\(Self.ytVolume(volume)))")
+        js("reelRate(\(rate))")
     }
     func play() { js("reelPlay()") }
     func pause() { js("reelPause()") }
@@ -339,6 +400,13 @@ final class YouTubeBackend: NSObject, PlayerBackend, WKScriptMessageHandler, WKN
             default: msg = "YouTube error \(code)"
             }
             delegate?.backendFailed(msg)
+        case "captions":
+            let list = (body["list"] as? [[String: Any]]) ?? []
+            captionTracks = list.compactMap { d in
+                guard let code = d["languageCode"] as? String else { return nil }
+                return (code, (d["displayName"] as? String) ?? (d["languageName"] as? String) ?? code)
+            }
+            delegate?.backendTracksChanged()
         case "log":
             NSLog("[yt] %@", "\(body["m"] ?? "")")
         default: break
@@ -352,7 +420,7 @@ final class YouTubeBackend: NSObject, PlayerBackend, WKScriptMessageHandler, WKN
     #p,iframe{position:absolute;inset:0;width:100%!important;height:100%!important;border:0}</style>
     </head><body><div id="p"></div>
     <script>
-    var player=null, apiReady=false, queued=null, queuedPlay=true, firstPlay=true;
+    var player=null, apiReady=false, queued=null, queuedPlay=true, firstPlay=true, wantRate=1, captionsAsked=false, captionsOn=false;
     function post(o){ try{ webkit.messageHandlers.reel.postMessage(o) }catch(e){} }
     function onYouTubeIframeAPIReady(){ apiReady=true; post({type:'ready'}); if(queued){ var q=queued; queued=null; reelLoad(q, queuedPlay);} }
     function make(id, play){
@@ -362,7 +430,9 @@ final class YouTubeBackend: NSObject, PlayerBackend, WKScriptMessageHandler, WKN
                     modestbranding:1, enablejsapi:1, origin:'\(origin)', widget_referrer:'\(origin)'},
         events:{
           onReady:function(e){ if(firstPlay) e.target.playVideo(); },
-          onStateChange:function(e){ post({type:'state', s:e.data}); },
+          onStateChange:function(e){ post({type:'state', s:e.data});
+            if(e.data==1){ if(wantRate!=1 && e.target.getPlaybackRate()!=wantRate) e.target.setPlaybackRate(wantRate);
+              if(!captionsAsked){ captionsAsked=true; reelCaptionList(); } } },
           onError:function(e){ post({type:'error', code:e.data}); }
         }});
     }
@@ -370,8 +440,22 @@ final class YouTubeBackend: NSObject, PlayerBackend, WKScriptMessageHandler, WKN
       if(play===undefined) play=true;
       if(!apiReady){ queued=id; queuedPlay=play; return; }
       if(!player || !player.loadVideoById){ if(!player) make(id, play); else setTimeout(function(){reelLoad(id, play)},200); return; }
+      captionsAsked=false;
       if(play) player.loadVideoById(id); else player.cueVideoById(id);
     }
+    function reelRate(r){ wantRate=r; if(player && player.setPlaybackRate) player.setPlaybackRate(r); }
+    // Captions: listing them needs the captions module loaded; leave it off again unless captions were on.
+    function reelCaptionList(){
+      if(!player || !player.loadModule) return;
+      player.loadModule('captions');
+      setTimeout(function(){
+        var l=[]; try{ l=player.getOption('captions','tracklist')||[]; }catch(e){}
+        post({type:'captions', list:l.map(function(t){return {languageCode:t.languageCode, displayName:t.displayName, languageName:t.languageName};})});
+        if(!captionsOn){ try{ player.unloadModule('captions'); }catch(e){} }
+      }, 1500);
+    }
+    function reelCaption(code){ captionsOn=true; player.loadModule('captions'); setTimeout(function(){ try{ player.setOption('captions','track',{languageCode:code}); }catch(e){} }, 300); }
+    function reelCaptionOff(){ captionsOn=false; try{ player.unloadModule('captions'); }catch(e){} }
     function reelPlay(){ player && player.playVideo && player.playVideo(); }
     function reelPause(){ player && player.pauseVideo && player.pauseVideo(); }
     function reelStop(){ player && player.stopVideo && player.stopVideo(); }

@@ -7,7 +7,7 @@
 set -e
 cd "$(dirname "$0")"
 # FFmpeg's decoding libraries for the in-app decoder (built once, cached in .deps/)
-[[ -f .deps/ffmpeg-shared/lib/libavcodec.dylib ]] || ./scripts/build-ffmpeg-libs.sh
+./scripts/build-ffmpeg-libs.sh      # no-op unless the libraries are missing or their configuration changed
 swift build -c release
 
 YW=$(date +%g.%V)
@@ -94,7 +94,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <dict>
       <key>UTTypeIdentifier</key><string>app.reel.reel-playlist</string>
       <key>UTTypeDescription</key><string>Reel Playlist</string>
-      <key>UTTypeConformsTo</key><array><string>public.json</string><string>public.data</string></array>
+      <key>UTTypeConformsTo</key><array><string>public.data</string><string>public.content</string></array>
       <key>UTTypeIconFile</key><string>ReelPlaylist</string>
       <key>UTTypeTagSpecification</key><dict>
         <key>public.filename-extension</key><array><string>reel</string></array>

@@ -1,4 +1,5 @@
 import AppKit
+import AVKit
 import UniformTypeIdentifiers
 
 protocol PlaylistPanelDelegate: AnyObject {
@@ -12,6 +13,9 @@ protocol PlaylistPanelDelegate: AnyObject {
     func panelPlayPause()
     func panelNext()
     func panelLoopCurrent()
+    func panelToggleShuffle()
+    /// The player AirPlay sends to a TV or speakers.
+    var airPlayPlayer: AVPlayer? { get }
     func panelOpenFiles()
     /// A short message on the video ("Added 3 items"). Sticky ones stay until replaced.
     func panelNotice(_ text: String, symbol: String, sticky: Bool)
@@ -176,7 +180,7 @@ final class TrackTable: NSTableView, RightClickHandling {
     }
 }
 
-final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
+final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
     weak var delegate: PlaylistPanelDelegate?
     private(set) var shownID: UUID
 
@@ -213,6 +217,15 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private lazy var playBtn = IconButton("play.fill", size: 15, tip: "Play / Pause (Space)", target: self, action: #selector(tPlay))
     private lazy var nextBtn = IconButton("forward.end.fill", size: 12, tip: "Next track (↓)", target: self, action: #selector(tNext))
     private lazy var loopBtn = IconButton("repeat.1", size: 13, tip: "Loop this track (L)", target: self, action: #selector(tLoop))
+    private lazy var shuffleBtn = IconButton("shuffle", size: 13, tip: "Shuffle (S)", target: self, action: #selector(tShuffle))
+    /// AirPlay to a TV or speakers.
+    private let airPlay: AVRoutePickerView = {
+        let r = AVRoutePickerView()
+        r.isRoutePickerButtonBordered = false
+        r.setRoutePickerButtonColor(NSColor.white.withAlphaComponent(0.85), for: .normal)
+        r.toolTip = "AirPlay to a TV or speakers"
+        return r
+    }()
     private lazy var addBtn = IconButton("plus", size: 15, tip: "Add files… (paste links with ⌘V)", target: self, action: #selector(tAdd))
     private let transportBar = NSView()
     private let spinner = NSProgressIndicator()
@@ -227,7 +240,22 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private var resolving = 0
     var isBusy: Bool { resolving > 0 }
 
-    var tracks: [Track] { Library.shared.playlist(shownID)?.tracks ?? [] }
+    /// Every track in the shown playlist.
+    var allTracks: [Track] { Library.shared.playlist(shownID)?.tracks ?? [] }
+    /// What the list shows: every track, or the ones matching the search.
+    var tracks: [Track] {
+        let all = allTracks
+        guard !filter.isEmpty else { return all }
+        return all.filter { t in
+            [t.displayName, t.autoTitle, t.url?.lastPathComponent.removingPercentEncoding ?? ""].contains { $0.localizedCaseInsensitiveContains(filter) }
+        }
+    }
+    /// Search (⌘F, or the magnifier beside the count): filters the list as you type; Esc closes it.
+    private let searchField = NSSearchField()
+    private(set) var searching = false
+    private var filter = ""
+    private lazy var searchBtn = IconButton("magnifyingglass", size: 11, tip: "Search this playlist (⌘F)", target: self, action: #selector(searchClicked))
+    private lazy var sortBtn = IconButton("arrow.up.arrow.down", size: 11, tip: "Sort this playlist", target: self, action: #selector(sortClicked))
     /// Distance from the top of the window to the traffic lights' center (set by the controller).
     var titleRowCenterFromTop: CGFloat = 16 { didSet { needsLayout = true } }
     /// Space kept free at the right of the title row for the playlist circle.
@@ -305,7 +333,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
         transportBar.wantsLayer = true
         transportBar.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.18).cgColor
-        [prevBtn, playBtn, nextBtn, loopBtn, spinner, addBtn].forEach(transportBar.addSubview)
+        [prevBtn, playBtn, nextBtn, loopBtn, shuffleBtn, airPlay, spinner, addBtn].forEach(transportBar.addSubview)
         setTransport(playing: false, loop: false, hasTrack: false)
         looseBar.isHidden = true
         looseBar.button.target = self; looseBar.button.action = #selector(addLooseClicked)
@@ -314,9 +342,14 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         listHost.wantsLayer = true
         listHost.layer?.masksToBounds = true
         playlistsPane.addSubview(listsScroll)
-        [saveBar, looseBar, scroll, emptyHint].forEach(tracksPane.addSubview)
+        searchField.placeholderString = "Search this playlist"
+        searchField.delegate = self
+        searchField.controlSize = .small
+        searchField.sendsSearchStringImmediately = true
+        searchField.isHidden = true
+        [searchField, saveBar, looseBar, scroll, emptyHint].forEach(tracksPane.addSubview)
         for pane in [playlistsPane, tracksPane] { pane.wantsLayer = true; listHost.addSubview(pane) }
-        [divider, nameField, countLabel, listsTitle, listsCount, headerLine, listHost, transportBar, dropHighlight].forEach(addSubview)
+        [divider, nameField, countLabel, listsTitle, listsCount, searchBtn, sortBtn, headerLine, listHost, transportBar, dropHighlight].forEach(addSubview)
         registerForDraggedTypes([.fileURL, .URL, .string])
 
         NotificationCenter.default.addObserver(self, selector: #selector(libraryChanged), name: Library.changed, object: nil)
@@ -342,6 +375,8 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
             f.frame = NSRect(x: 14, y: cy - 9, width: textW, height: 18)
             c.frame = NSRect(x: 15, y: cy - 28, width: W - 30, height: 15)
         }
+        sortBtn.frame = NSRect(x: W - 30, y: cy - 31, width: 20, height: 20)
+        searchBtn.frame = NSRect(x: W - 52, y: cy - 31, width: 20, height: 20)
         let lineY = showCount ? cy - 36 : cy - 16
         headerLine.frame = NSRect(x: 0, y: lineY, width: W, height: 1)
         headerLine.isHidden = !showHeader
@@ -354,8 +389,12 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         playBtn.frame = NSRect(x: 38, y: by, width: 28, height: bh)
         nextBtn.frame = NSRect(x: 68, y: by, width: 26, height: bh)
         loopBtn.frame = NSRect(x: 102, y: by, width: 26, height: bh)
+        shuffleBtn.frame = NSRect(x: 130, y: by, width: 26, height: bh)
         addBtn.frame = NSRect(x: W - 36, y: by, width: 26, height: bh)
-        spinner.frame = NSRect(x: W - 62, y: by + 4, width: 16, height: 16)
+        airPlay.frame = NSRect(x: W - 64, y: by, width: 26, height: bh)
+        airPlay.isHidden = W < 220
+        if airPlay.player == nil { airPlay.player = delegate?.airPlayPlayer }
+        spinner.frame = NSRect(x: W - 88, y: by + 4, width: 16, height: 16)
 
         listHost.frame = NSRect(x: 0, y: barH, width: W, height: max(0, top - barH))
         let pw = listHost.bounds.width, ph = listHost.bounds.height
@@ -365,6 +404,10 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         listsScroll.frame = NSRect(x: 4, y: 0, width: pw - 8, height: ph)
         // the tracks pane: Save / Add strips on top, then the list
         var paneTop = ph - 6
+        if searching {
+            searchField.frame = NSRect(x: 8, y: paneTop - 24, width: pw - 16, height: 22)
+            paneTop -= 30
+        }
         for bar in [saveBar, looseBar] {
             if !bar.isHidden && H >= 170 {
                 bar.frame = NSRect(x: 8, y: paneTop - 42, width: pw - 16, height: 42)
@@ -377,7 +420,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         table.tableColumns.first?.width = scroll.contentSize.width
         playlistTable.tableColumns.first?.width = listsScroll.contentSize.width
         emptyHint.frame = NSRect(x: 16, y: scroll.frame.midY - 45, width: pw - 32, height: 90)
-        emptyHint.isHidden = !tracks.isEmpty || H < 170
+        emptyHint.isHidden = searching || !tracks.isEmpty || H < 170
         dropHighlight.frame = bounds
         dropHighlight.labelBottomInset = barH
     }
@@ -389,6 +432,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         let showHeader = bounds.height >= 60, showCount = bounds.height >= 170
         listsTitle.isHidden = !showHeader; nameField.isHidden = !showHeader
         listsCount.isHidden = !showCount; countLabel.isHidden = !showCount
+        searchBtn.isHidden = !showCount || p >= 0.5; sortBtn.isHidden = !showCount || p >= 0.5
         // the faded-out title stays put but can't be clicked
         nameField.onClick = p < 0.5 ? { [weak self] in self?.toggleMode() } : nil
         listsTitle.onClick = p >= 0.5 ? { [weak self] in self?.toggleMode() } : nil
@@ -416,7 +460,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = duration
                 ctx.timingFunction = timing
-                [nameField, countLabel].forEach { $0.animator().alphaValue = 1 - p }
+                [nameField, countLabel, searchBtn, sortBtn].forEach { $0.animator().alphaValue = 1 - p }
                 [listsTitle, listsCount].forEach { $0.animator().alphaValue = p }
             }, completionHandler: { [weak self] in
                 guard let self, self.progress == p else { return }   // a newer move took over
@@ -424,7 +468,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
                 self.tracksPane.isHidden = p == 1
             })
         } else {
-            [nameField, countLabel].forEach { $0.alphaValue = 1 - p }
+            [nameField, countLabel, searchBtn, sortBtn].forEach { $0.alphaValue = 1 - p }
             [listsTitle, listsCount].forEach { $0.alphaValue = p }
         }
     }
@@ -549,6 +593,16 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     @objc private func tPlay() { delegate?.panelPlayPause() }
     @objc private func tNext() { delegate?.panelNext() }
     @objc private func tLoop() { delegate?.panelLoopCurrent() }
+    @objc private func tShuffle() { delegate?.panelToggleShuffle() }
+
+    func setShuffle(_ on: Bool) {
+        shuffleBtn.on = on
+        shuffleBtn.wantsLayer = true
+        shuffleBtn.layer?.cornerRadius = 7
+        shuffleBtn.layer?.backgroundColor = on ? NSColor.controlAccentColor.withAlphaComponent(0.28).cgColor : nil
+        shuffleBtn.alphaValue = on ? 1 : 0.6
+        shuffleBtn.toolTip = on ? "Shuffle is on — click to play in order (S)" : "Shuffle (S)"
+    }
     @objc private func tAdd() { if mode == .playlists { newPlaylist() } else { delegate?.panelOpenFiles() } }
 
     func setTransport(playing: Bool, loop: Bool, hasTrack: Bool) {
@@ -602,7 +656,8 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         nameField.toolTip = "Show all playlists (or swipe right with two fingers)"
         listsTitle.toolTip = "Back to “\(p?.name ?? "the playlist")” (or swipe left with two fingers)"
         addBtn.toolTip = mode == .playlists ? "New playlist" : "Add files… (paste links with ⌘V)"
-        countLabel.stringValue = (p?.isUnsaved == true ? "Not saved · " : "") + Self.summary(p?.tracks ?? [])
+        countLabel.stringValue = (p?.isUnsaved == true ? "Not saved · " : "")
+            + (filter.isEmpty ? Self.summary(p?.tracks ?? []) : "\(tracks.count) of \(p?.tracks.count ?? 0) match")
         refreshLoose()
     }
 
@@ -665,7 +720,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     /// Shows a playlist's tracks. Doesn't play anything (pick a track for that), and isn't remembered:
     /// reopening the playlist pane shows what's playing.
     func show(playlist id: UUID, animated: Bool = false) {
-        if shownID != id { table.deselectAll(nil) }    // a selection doesn't carry across playlists
+        if shownID != id { table.deselectAll(nil); endSearch(reload: false) }    // a selection or search doesn't carry across playlists
         shownID = id
         reloadAll()
         followsCurrent = true
@@ -1084,6 +1139,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         delegate?.panelNotice(willPlay && items.count == 1 ? "Playing \(what)" : "Added \(what) to “\(name)”",
                               symbol: willPlay ? "play.circle.fill" : "plus.circle.fill", sticky: false)
         // Open the playlist and select the new rows so you can see where they went.
+        endSearch(reload: false)
         if id != shownID || mode == .playlists { show(playlist: id, animated: true) }
         delegate?.panelWantsToBeSeen()
         let rows = IndexSet(at..<min(at + items.count, table.numberOfRows))
@@ -1096,6 +1152,98 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
         if willPlay, let first = items.first {
             delegate?.panelPlay(playlist: id, track: first.id)
         }
+    }
+
+    // MARK: Search
+
+    @objc private func searchClicked() { searching ? endSearch() : beginSearch() }
+    func debugSearch(_ text: String) { searchField.stringValue = text; controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField)) }
+    var debugCount: String { countLabel.stringValue }
+    var debugAirPlayReady: Bool { airPlay.player != nil }
+
+    func beginSearch() {
+        if mode == .playlists { show(playlist: shownID, animated: true) }
+        searching = true
+        searchField.isHidden = false
+        needsLayout = true
+        window?.makeFirstResponder(searchField)
+    }
+
+    func endSearch(reload: Bool = true) {
+        guard searching || !filter.isEmpty else { return }
+        searching = false
+        filter = ""
+        searchField.stringValue = ""
+        searchField.isHidden = true
+        needsLayout = true
+        if window?.firstResponder === searchField.currentEditor() { window?.makeFirstResponder(table) }
+        if reload { reloadAll() }
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        guard (obj.object as? NSSearchField) === searchField else { return }
+        filter = searchField.stringValue.trimmingCharacters(in: .whitespaces)
+        table.deselectAll(nil)
+        reloadAll()
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
+        guard control === searchField else { return false }
+        if sel == #selector(NSResponder.cancelOperation(_:)) { endSearch(); return true }          // Esc
+        if sel == #selector(NSResponder.insertNewline(_:)), !tracks.isEmpty { play(row: 0); return true }   // Return plays the first match
+        if sel == #selector(NSResponder.moveDown(_:)), !tracks.isEmpty {
+            window?.makeFirstResponder(table); table.selectRowIndexes([0], byExtendingSelection: false); return true
+        }
+        return false
+    }
+
+    // MARK: Sort (reorders the playlist; ⌘Z puts it back)
+
+    enum Sort: String, CaseIterable {
+        case titleAZ = "Title (A to Z)", titleZA = "Title (Z to A)"
+        case shortest = "Length (shortest first)", longest = "Length (longest first)"
+        case reverse = "Reverse order"
+    }
+
+    @objc private func sortClicked() {
+        let m = NSMenu()
+        for how in Sort.allCases {
+            if how == .reverse { m.addItem(.separator()) }
+            m.addItem(ClosureMenuItem(title: how.rawValue) { [weak self] in self?.sortShown(how) })
+        }
+        m.popUp(positioning: nil, at: NSPoint(x: 0, y: sortBtn.bounds.height + 2), in: sortBtn)
+    }
+
+    func sortShown(_ how: Sort) {
+        let id = shownID
+        guard let before = Library.shared.playlist(id)?.tracks.map(\.id), before.count > 1 else { return }
+        Library.shared.mutate(id) { p in
+            switch how {
+            case .titleAZ: p.tracks.sort { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+            case .titleZA: p.tracks.sort { $0.displayName.localizedStandardCompare($1.displayName) == .orderedDescending }
+            case .shortest: p.tracks.sort { ($0.duration ?? .infinity) < ($1.duration ?? .infinity) }
+            case .longest: p.tracks.sort { ($0.duration ?? -1) > ($1.duration ?? -1) }
+            case .reverse: p.tracks.reverse()
+            }
+        }
+        registerUndo(restoring: before, in: id, name: "Sort")
+        delegate?.panelNotice("Sorted: \(how.rawValue.lowercased()) · ⌘Z to undo", symbol: "arrow.up.arrow.down", sticky: false)
+    }
+
+    /// Puts the playlist back in `order` (tracks added since go at the end), with redo.
+    private func registerUndo(restoring order: [UUID], in id: UUID, name: String) {
+        guard let um = window?.undoManager else { return }
+        um.registerUndo(withTarget: self) { panel in
+            guard let now = Library.shared.playlist(id)?.tracks else { return }
+            let current = now.map(\.id)
+            Library.shared.mutate(id) { p in
+                let byID = Dictionary(uniqueKeysWithValues: p.tracks.map { ($0.id, $0) })
+                let ordered = order.compactMap { byID[$0] }
+                p.tracks = ordered + p.tracks.filter { !order.contains($0.id) }
+            }
+            panel.registerUndo(restoring: current, in: id, name: name)
+        }
+        um.setActionName(name)
     }
 
     // MARK: Loose items (playing, but not in a playlist)
@@ -1147,6 +1295,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
     /// under the pointer (after it, in its lower half), the end of the list below the last row, nil outside the list.
     func insertionRow(atWindowPoint wp: NSPoint) -> Int? {
         guard !isHidden, mode == .tracks, scroll.convert(scroll.bounds, to: self).contains(convert(wp, from: nil)) else { return nil }
+        if !filter.isEmpty { return allTracks.count }          // searching: added at the end
         let tp = table.convert(wp, from: nil)
         let r = table.row(at: tp)
         guard r >= 0 else { return tracks.count }
@@ -1201,6 +1350,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate {
                    proposedDropOperation op: NSTableView.DropOperation) -> NSDragOperation {
         if let src = info.draggingSource as? NSTableView, src === table || src === playlistTable {
             guard src === tableView else { return [] }          // reorder within the same list only
+            if tableView === table && !filter.isEmpty { return [] }   // not while the list is filtered
             tableView.setDropRow(row, dropOperation: .above); return .move
         }
         if tableView === playlistTable {

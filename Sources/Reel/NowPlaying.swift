@@ -24,6 +24,8 @@ final class NowPlaying {
     }()
 
     let actions: Actions   // kept for tests
+    /// Playback speed, so Control Center's position moves at the right pace.
+    var speed: Double = 1
     init(_ a: Actions) {
         actions = a
         center.playCommand.addTarget { _ in a.play(); return .success }
@@ -60,7 +62,7 @@ final class NowPlaying {
             MPMediaItemPropertyTitle: title,
             MPMediaItemPropertyArtist: "Reel",
             MPNowPlayingInfoPropertyElapsedPlaybackTime: max(0, elapsed),
-            MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyPlaybackRate: playing ? speed : 0.0,
             MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.video.rawValue,
         ]

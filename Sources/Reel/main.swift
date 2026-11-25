@@ -3,6 +3,7 @@ import MediaPlayer
 import VideoToolbox
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+    private var playbackMenu: NSMenu?
     var player: PlayerController!
     var hoverHotkeys: HoverHotkeys?
     var hoverMenuItem: NSMenuItem?
@@ -13,6 +14,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Updater.willRelaunch = { [weak self] in self?.player.saveResumePoint(forUpdate: true) }
         showWelcomeIfFreshInstall()
         player = PlayerController()
+        // Speed / Audio Track / Subtitles fill themselves in each time the menu opens
+        if let m = playbackMenu {
+            let at = (m.items.firstIndex { $0.action == #selector(PlayerController.menuNextFrame(_:)) } ?? m.items.count)
+            m.insertItem(PlaybackExtras.submenu("Speed", .speed, delegate: player.extras), at: at)
+            m.insertItem(PlaybackExtras.submenu("Audio Track", .audio, delegate: player.extras), at: m.items.count - 1)
+            m.insertItem(PlaybackExtras.submenu("Subtitles", .subtitles, delegate: player.extras), at: m.items.count - 1)
+            m.insertItem(.separator(), at: m.items.count - 1)
+        }
         player.showWindow()
         // Hotkeys while the mouse is over Reel, even when another app is active (needs Accessibility).
         hoverHotkeys = HoverHotkeys(player: player)
@@ -38,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let u = ProcessInfo.processInfo.environment["REEL_PLAY"] {
             if u == "first" { player.nextTrack() } else { player.panel.add(text: u, at: nil, playFirst: true) }
         }
-        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST", "REEL_REELFILE_TEST", "REEL_ASK_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
+        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST", "REEL_REELFILE_TEST", "REEL_ASK_TEST", "REEL_EXTRAS_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
         if !testing { NSApp.activate(ignoringOtherApps: true) }
         if let dir = ProcessInfo.processInfo.environment["REEL_DOT_TEST"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
@@ -410,6 +419,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             ]
             var t = 0.0
             for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
+        }
+        if let path = ProcessInfo.processInfo.environment["REEL_SUBPROBE"] {
+            let u = URL(fileURLWithPath: path)
+            print("streams:", SubtitleReader.streams(in: u).map { "\($0.index) \($0.name)" })
+            print("cues:", SubtitleReader.read(u).map { String(format: "%.2f–%.2f %@", $0.start, $0.end, $0.text ?? "(picture)") })
+            fflush(stdout); NSApp.terminate(nil)
+        }
+        if ProcessInfo.processInfo.environment["REEL_EXTRAS_TEST"] != nil {
+            // Audio tracks, subtitles (inside MKV / MP4, beside the file), speed, frame step, shuffle, stop after,
+            // per-video resume, search and sort. Playlist order: Two languages.mkv, Built-in subs.mp4, Sidecar.mp4,
+            // Long lecture.mp4, then a few short clips.
+            let pl = self.player!, panel = pl.panel, x = pl.extras, lib = Library.shared
+            let p = lib.playlists[0]
+            func t(_ name: String) -> Track { p.tracks.first { $0.displayName == name }! }
+            func now() -> String { pl.currentTrack?.displayName ?? "-" }
+            func time() -> String { String(format: "%.2f", pl.backend?.currentTime ?? -1) }
+            func say(_ s: String) { print(s); fflush(stdout) }
+            var steps: [(Double, () -> Void)] = []
+            func at(_ d: Double, _ f: @escaping () -> Void) { steps.append((d, f)) }
+            at(0.8) { pl.panelPlay(playlist: p.id, track: t("Two languages").id) }
+            at(2.5) {
+                say("1. MKV: backend \(type(of: pl.backend!)), audio tracks \(pl.backend!.audioTrackNames) (playing #\(pl.backend!.selectedAudioTrack))")
+                say("   subtitles found: \(x.subtitleChoices.map(\.name)), showing: \(x.subtitleChoice.map { String($0) } ?? "none")")
+                pl.backend?.selectAudioTrack(1); x.selectSubtitle(1); pl.backend?.seek(to: 0.9)
+            }
+            at(1.2) { say("   chose audio 2 → playing #\(pl.backend!.selectedAudioTrack); ASS subtitles at \(self.player.backend!.currentTime > 0 ? "t=\(time())" : "") show: \(x.overlay.debugText.map { "\"\($0)\"" } ?? "nothing")")
+                x.selectSubtitle(0); pl.backend?.seek(to: 2.8) }
+            at(0.8) { say("   SRT stream at t=\(time()) shows: \(x.overlay.debugText.map { "\"\($0)\"" } ?? "nothing")") }
+            at(0.3) { pl.panelPlay(playlist: p.id, track: t("Built-in subs").id) }
+            at(2.0) { say("2. MP4 built-in: subtitles \(x.subtitleChoices.map(\.name)), audio tracks \(pl.backend!.audioTrackNames)")
+                x.selectSubtitle(0); pl.backend?.seek(to: 1.0) }
+            at(1.0) { say("   at t=\(time()) shows: \(x.overlay.debugText.map { "\"\($0)\"" } ?? "nothing")")
+                pl.panelPlay(playlist: p.id, track: t("Sidecar").id) }
+            at(1.5) { pl.backend?.seek(to: 3.0) }
+            at(0.8) { say("3. Sidecar.mp4 + Sidecar.srt: choices \(x.subtitleChoices.map(\.name)), auto-on: \(x.subtitleChoice != nil), at t=\(time()) shows \(x.overlay.debugText.map { "\"\($0)\"" } ?? "nothing")")
+                x.toggleSubtitles(); say("   V → off: \(x.subtitleChoice == nil), showing \(x.overlay.debugText ?? "nothing")")
+                pl.backend?.seek(to: 0) ; x.setSpeed(2); pl.backend?.play() }
+            var t0 = 0.0
+            at(0.5) { t0 = pl.backend!.currentTime }
+            at(1.0) { say(String(format: "4. speed 2× → %.2f s of video in 1 s (rate %.2f)", pl.backend!.currentTime - t0, pl.backend!.rate)); x.setSpeed(1) }
+            var f0 = 0.0
+            at(0.5) { pl.backend?.pause() }
+            at(0.4) { f0 = pl.backend!.currentTime; x.step(1) }
+            at(0.6) { say(String(format: "5. one frame forward: +%.3f s, paused: %@", pl.backend!.currentTime - f0, pl.backend!.isPlaying ? "no" : "yes")) }
+            // shuffle
+            at(0.3) { if !x.shuffle { x.toggleShuffle() }; pl.panelPlay(playlist: p.id, track: p.tracks[0].id) }
+            var order: [String] = []
+            for _ in 0..<6 { at(0.5) { pl.nextTrack(); order.append(now()) } }
+            at(0.5) { say("6. shuffle: \(order) (\(Set(order).count) different of \(order.count))")
+                let before = now(); pl.prevTrack(); say("   ⏮ from \(before) → \(now()) (the one before it: \(order.dropLast().last ?? "?"))")
+                x.toggleShuffle() }
+            // stop after this
+            at(0.6) { pl.panelPlay(playlist: p.id, track: t("Aurora").id) }
+            at(1.0) { x.toggleStopAfter(); pl.backendDidEnd()
+                say("7. stop after this: still on \(now()), playing: \(pl.backend!.isPlaying), flag cleared: \(!x.stopAfterCurrent)") }
+            // per-video resume
+            at(0.5) { pl.panelPlay(playlist: p.id, track: t("Long lecture").id) }
+            at(2.0) { pl.backend?.seek(to: 300) }
+            at(1.0) { say("8. long video at t=\(time()); switching away…"); pl.panelPlay(playlist: p.id, track: t("Aurora").id) }
+            at(1.0) { say("   remembered: \(PlaybackExtras.position(for: t("Long lecture")).map { String(format: "%.0f s", $0) } ?? "nothing")")
+                pl.panelPlay(playlist: p.id, track: t("Long lecture").id) }
+            at(2.5) { say("   back to it → t=\(time()) (toast: \(pl.toast.text))") }
+            // search + sort
+            at(0.3) { pl.setPanel(open: true); panel.beginSearch()
+                let f = panel.subviews.compactMap { $0 as? NSView }.isEmpty ? nil : panel
+                _ = f; panel.debugSearch("sub") }
+            at(0.5) { say("9. search 'sub': \(panel.tracks.map(\.displayName)), header '\(panel.debugCount)'")
+                panel.endSearch(); panel.sortShown(.titleAZ); say("   sorted A→Z: \(panel.allTracks.map(\.displayName))")
+                pl.window.undoManager?.undo(); say("   ⌘Z: \(panel.allTracks.map(\.displayName))") }
+            at(0.5) { say("10. AirPlay button wired to the player: \(panel.debugAirPlayReady)"); NSApp.terminate(nil) }
+            var tt = 0.0
+            for (d, f) in steps { tt += d; DispatchQueue.main.asyncAfter(deadline: .now() + tt) { f() } }
         }
         if let dir = ProcessInfo.processInfo.environment["REEL_PLAYLISTS_TEST"] {
             // Title click → all playlists (animated); opening one doesn't play; reopening the pane shows what's playing.
@@ -1088,6 +1169,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item("Copy", #selector(NSText.copy(_:)), "c"),
             item("Paste", #selector(NSText.paste(_:)), "v"),
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
+            .separator(),
+            item("Find in Playlist…", #selector(PlayerController.menuFind(_:)), "f"),
         ])
         menu("Playback", [
             // Plain keys (Space, arrows) are handled once by the player's key handler; giving these
@@ -1099,8 +1182,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item("Previous Track    ↑", #selector(PlayerController.menuPrev(_:))),
             .separator(),
             item("Loop This Track", #selector(PlayerController.menuLoop(_:)), "l"),
+            item("Shuffle    S", #selector(PlayerController.menuShuffle(_:))),
+            item("Stop After This Track", #selector(PlayerController.menuStopAfter(_:))),
+            .separator(),
+            item("Next Frame    .", #selector(PlayerController.menuNextFrame(_:))),
+            item("Previous Frame    ,", #selector(PlayerController.menuPrevFrame(_:))),
+            .separator(),
             item("Mute", #selector(PlayerController.menuMute(_:)), "m", [.command, .shift]),
         ])
+        playbackMenu = main.items.last?.submenu
         menu("View", [
             item("Show Playlist", #selector(PlayerController.menuPlaylist(_:)), "p"),
             item("Always on Top", #selector(PlayerController.menuPin(_:)), "t"),

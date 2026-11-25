@@ -47,6 +47,16 @@ Most players want to be the main window. Reel is built to sit in a corner while 
 | **WebM, including transparent** | See-through video floats over your desktop, with glass behind it only while the playlist or window buttons show |
 | **Unusual formats** | Anything macOS can't decode plays through Reel's built-in FFmpeg decoder. No conversion and no extra installs. |
 
+### Watching
+
+- **Subtitles:** a `.srt`, `.vtt` or `.ass` file named like the video shows by itself. Subtitles inside MKV and MP4
+  files, including picture subtitles from Blu-ray and DVD rips, and YouTube's captions are in Playback → Subtitles.
+  Drop a subtitle file on the video to use it.
+- **Audio tracks:** switch language or commentary in files that have more than one.
+- **Speed** from ¼× to 2× with pitch kept natural, and **frame-by-frame** stepping.
+- **Long videos pick up where you stopped,** even after playing other things in between.
+- **AirPlay** to a TV or speakers.
+
 Drop something on the video to play it right away, or on the playlist to add it at that spot. Dragging over the
 video opens the playlist so you can. ⌘V works the same way, going wherever the pointer is. Anything playing that isn't
 in a playlist gets an **Add** button, so you can keep it.
@@ -66,8 +76,10 @@ double-clicking a file in Finder opens it in Reel.
   all of them. Picking one shows it without interrupting what's playing. ⇧↑ / ⇧↓ switch from the keyboard.
 - Right-click a playlist to rename, export, show in Finder, clear or delete it. Drag to reorder.
 - Each playlist is saved as a `.reel` file in `~/Library/Application Support/Reel/Playlists`, easy to back up or copy.
-- Per-track loop, play next, rename, and **skip**: struck-through tracks stay in the list, but playback passes over them.
-- Plays round to the top at the end.
+- **Shuffle**, per-track loop, play next, rename, and **skip**: struck-through tracks stay in the list, but playback
+  passes over them. Playlists play through and round to the top; loop a track with L.
+- **Search** as you type, and **sort** by title or length (⌘Z undoes it).
+- **Stop after this track**, from the Playback menu.
 - **Share playlists as `.reel` files.** Export one and send it to a friend. Double-clicking it plays it straight away
   without adding it to their playlists; they click **Save** if they want to keep it. Dropping one on Reel asks
   whether to play it without saving, save it, or add its items to the playlist you're viewing.
@@ -82,11 +94,15 @@ double-clicking a file in Finder opens it in Reel.
 | ← → | Back / forward 10 seconds |
 | ↑ ↓ or ⇧← ⇧→ | Previous / next track |
 | ⇧↑ ⇧↓ | Previous / next playlist |
-| L · M · F | Loop track · mute · full screen |
+| L · S · M · F | Loop track · shuffle · mute · full screen |
+| [ · ] · = | Slower · faster · normal speed (¼× to 2×) |
+| , · . | One frame back · forward |
+| V | Subtitles on / off |
 | Right-drag ← → / ↑ ↓ | Seek / volume (or two-finger swipe; mouse wheel is volume) |
-| Right-click | Quick menu: play, loop, on top, playlist, add, paste, full screen (brings Reel forward too) |
+| Right-click | Quick menu: play, loop, shuffle, speed / audio / subtitles, on top, playlist, add, paste, full screen |
 | Two-finger swipe ← → on the playlist | Slide between the playlist and all playlists |
 | ⌘V | Paste links or files where the pointer is: into the playlist, or onto the video to play now |
+| ⌘F | Search the playlist |
 | ⌘P · ⌘T · ⌘0 | Playlist · always on top · actual size |
 | Headset, AirPods, ⏯ ⏭ ⏮ keys | Play / pause, next and previous track; Reel shows in Control Center's Now Playing |
 
@@ -137,6 +153,11 @@ Versions are numbered `vYY.WW.NN`: year, week of the year, then the build number
 `v26.51.12` is the twelfth build in week 51 of 2026.
 
 </details>
+
+## License
+
+Reel's code is MIT-licensed. The creature in Reel's icon and screenshots, and its likeness, belong to the
+author and aren't covered by that license. See [LICENSE](LICENSE).
 
 ## Acknowledgements
 

@@ -26,9 +26,16 @@ final class FFBackend: NSObject, PlayerBackend {
     fileprivate(set) var startOffset: Double = 0
     private(set) var duration: Double = 0
     private var volume: Float = 1
+    var rate: Float = 1 { didSet { if wantPlaying && clockStarted { clock.rate = rate } } }
+    private var url: URL?
+    private var fps: Double = 30
+    /// The file's audio streams (FFmpeg stream index, name) and the one playing.
+    private var audioStreams: [(index: Int32, name: String)] = []
+    private var currentAudio: Int32 = -1
 
     override init() {
         super.init()
+        audio.audioTimePitchAlgorithm = .spectral
         if #available(macOS 14.0, *) { clock.addRenderer(display.sampleBufferRenderer) } else { clock.addRenderer(display) }
         clock.addRenderer(audio)
     }
@@ -49,7 +56,9 @@ final class FFBackend: NSObject, PlayerBackend {
         start(url: url)
     }
 
-    func start(url: URL) {
+    func start(url: URL, audioStream: Int32? = nil, at time: Double? = nil) {
+        self.url = url
+        if audioStream == nil { audioStreams = []; currentAudio = -1 }
         stopSession()
         flushRenderers()
         clock.setRate(0, time: .zero)
@@ -58,16 +67,17 @@ final class FFBackend: NSObject, PlayerBackend {
         duration = 0
         startOffset = 0
         wantPlaying = autoplay
-        let s = FFSession(url: url.isFileURL ? url.path : url.absoluteString, owner: self)
+        let s = FFSession(url: url.isFileURL ? url.path : url.absoluteString, owner: self, audioStream: audioStream)
         session = s
         s.start()
+        if let time { clock.setRate(0, time: CMTime(seconds: time, preferredTimescale: 90_000)); s.requestSeek(to: time) }
         tick?.invalidate()
         tick = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in self?.onTick() }
     }
 
     func play() {
         wantPlaying = true
-        if clockStarted { clock.rate = 1 }
+        if clockStarted { clock.rate = rate }
         delegate?.backendStateChanged()
     }
 
@@ -89,6 +99,24 @@ final class FFBackend: NSObject, PlayerBackend {
     }
 
     func setVolume(_ v: Float) { volume = v; audio.volume = v }
+
+    func step(frames: Int) {
+        pause()
+        seek(to: max(0, currentTime + Double(frames) / max(1, fps)))
+    }
+
+    var audioTrackNames: [String] { audioStreams.count > 1 ? audioStreams.map(\.name) : [] }
+    var selectedAudioTrack: Int { audioStreams.firstIndex { $0.index == currentAudio } ?? 0 }
+    /// Restarts decoding from the same spot with the other audio stream.
+    func selectAudioTrack(_ i: Int) {
+        guard i >= 0, i < audioStreams.count, audioStreams[i].index != currentAudio, let url else { return }
+        let t = currentTime + startOffset, playing = wantPlaying
+        let keep = audioStreams
+        autoplay = playing
+        start(url: url, audioStream: keep[i].index, at: t)
+        audioStreams = keep
+        currentAudio = keep[i].index
+    }
 
     func stop() {
         stopSession()
@@ -119,10 +147,15 @@ final class FFBackend: NSObject, PlayerBackend {
         if #available(macOS 14.0, *) { display.sampleBufferRenderer.enqueue(sb) } else { display.enqueue(sb) }
     }
 
-    fileprivate func opened(duration d: Double, start: Double, size: CGSize, alpha: Bool) {
+    fileprivate func opened(duration d: Double, start: Double, size: CGSize, alpha: Bool,
+                            fps f: Double, audio list: [(index: Int32, name: String)], playingAudio: Int32) {
         duration = d
         startOffset = start
-        clock.setRate(0, time: CMTime(seconds: start, preferredTimescale: 90_000))
+        fps = f
+        audioStreams = list
+        currentAudio = playingAudio
+        delegate?.backendTracksChanged()
+        if session?.pendingSeekValue == nil { clock.setRate(0, time: CMTime(seconds: start, preferredTimescale: 90_000)) }
         host.setTransparent(alpha)
         if size.width > 0 { delegate?.backendVideoSize(size) }
         delegate?.backendTransparent(alpha)
@@ -132,7 +165,7 @@ final class FFBackend: NSObject, PlayerBackend {
     /// The session has buffered enough after opening or seeking: let time run (if playing).
     fileprivate func bufferReady(at t: Double) {
         clockStarted = true
-        clock.setRate(wantPlaying ? 1 : 0, time: CMTime(seconds: t, preferredTimescale: 90_000))
+        clock.setRate(wantPlaying ? rate : 0, time: CMTime(seconds: t, preferredTimescale: 90_000))
         delegate?.backendStateChanged()
         delegate?.backendTick()
     }
@@ -195,7 +228,9 @@ private final class FFSession {
     private var bufferStartedAt: Double = -1
     private var waitingForBuffer = true
 
-    init(url: String, owner: FFBackend) { self.url = url; self.owner = owner }
+    private let audioChoice: Int32?
+    init(url: String, owner: FFBackend, audioStream: Int32?) { self.url = url; self.owner = owner; self.audioChoice = audioStream }
+    var pendingSeekValue: Double? { lock.lock(); defer { lock.unlock() }; return pendingSeek }
 
     func start() {
         let t = Thread { [self] in run() }
@@ -282,6 +317,19 @@ private final class FFSession {
 
         vIndex = av_find_best_stream(ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
         aIndex = av_find_best_stream(ctx, AVMEDIA_TYPE_AUDIO, -1, vIndex, nil, 0)
+        // every audio stream, named by its title / language, so you can switch
+        var audioList: [(index: Int32, name: String)] = []
+        for i in 0..<Int(ctx.pointee.nb_streams) {
+            guard let st = ctx.pointee.streams[i], st.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO else { continue }
+            func tag(_ k: String) -> String? { av_dict_get(st.pointee.metadata, k, nil, 0).map { String(cString: $0.pointee.value) } }
+            let lang = tag("language").flatMap { $0 == "und" ? nil : Locale.current.localizedString(forLanguageCode: $0) ?? $0 }
+            var parts = [tag("title"), lang].compactMap { $0 }.filter { !$0.isEmpty }
+            if parts.count == 2, parts[0].localizedCaseInsensitiveContains(parts[1]) { parts.removeLast() }   // "English · English"
+            let name = parts.joined(separator: " · ")
+            audioList.append((Int32(i), name.isEmpty ? "Track \(audioList.count + 1)" : name))
+        }
+        if let c = audioChoice, audioList.contains(where: { $0.index == c }) { aIndex = c }
+        var fps = 30.0
         if vIndex < 0 && aIndex < 0 { fail("No video or audio in this file"); return false }
 
         var size = CGSize.zero
@@ -297,6 +345,8 @@ private final class FFSession {
             vctx = openDecoder(codec, par)
             vtb = st.pointee.time_base
             size = CGSize(width: Int(par.pointee.width), height: Int(par.pointee.height))
+            let fr = st.pointee.avg_frame_rate
+            if fr.num > 0 && fr.den > 0 { fps = Double(fr.num) / Double(fr.den) }
             if vctx == nil { vIndex = -1 }
         }
         if aIndex >= 0, let st = ctx.pointee.streams[Int(aIndex)] {
@@ -310,8 +360,8 @@ private final class FFSession {
         let dur = ctx.pointee.duration > 0 ? Double(ctx.pointee.duration) / tb : 0
         let st0 = ctx.pointee.start_time != reel_nopts() ? Double(ctx.pointee.start_time) / tb : 0
         bufferStartedAt = st0
-        let a = alpha
-        onMain { $0.opened(duration: dur, start: st0, size: size, alpha: a) }
+        let a = alpha, playingAudio = aIndex, f = fps
+        onMain { $0.opened(duration: dur, start: st0, size: size, alpha: a, fps: f, audio: audioList, playingAudio: playingAudio) }
         return true
     }
 

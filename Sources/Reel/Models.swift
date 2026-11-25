@@ -17,7 +17,7 @@ struct Track: Codable, Identifiable, Equatable {
     var customName: String?
     /// Title we discovered (filename, YouTube title, metadata)
     var autoTitle: String
-    var loop: Bool = true      // new tracks loop by default
+    var loop: Bool = false     // playlists play through; loop a track with L
     /// Struck through: next/previous and auto-advance pass over it, but you can still click it to play.
     /// Optional so libraries saved before this existed still load.
     var skip: Bool? = nil
@@ -76,7 +76,8 @@ struct Playlist: Codable, Identifiable {
 /// Reel's own playlist file: `.reel` (JSON inside). Declared in Info.plist so Finder shows it with Reel's
 /// icon and double-clicking opens Reel. Older `.json` exports still import.
 extension UTType {
-    static let reelPlaylist = UTType(exportedAs: "app.reel.reel-playlist", conformingTo: .json)
+    /// Its own document type (JSON inside, but not declared as JSON/text: Finder would draw the text as the icon).
+    static let reelPlaylist = UTType(exportedAs: "app.reel.reel-playlist", conformingTo: .data)
 }
 
 /// Reel's playlist file. The export button writes one; dropping one on Reel imports it as a new playlist.
@@ -409,6 +410,11 @@ enum Prefs {
             return 1.0
         }
         set { UserDefaults.standard.set(newValue, forKey: "volumeLevel") }
+    }
+    /// Shuffle the playlist's order (S). Kept between launches.
+    static var shuffle: Bool {
+        get { UserDefaults.standard.bool(forKey: "shuffle") }
+        set { UserDefaults.standard.set(newValue, forKey: "shuffle") }
     }
     static var lastPlaylist: String? {
         get { UserDefaults.standard.string(forKey: "lastPlaylist") }

@@ -1,5 +1,6 @@
 import AppKit
 import UniformTypeIdentifiers
+import AVFoundation
 
 private let minPanelW: CGFloat = 220
 private let maxPanelW: CGFloat = 600
@@ -290,11 +291,12 @@ final class RootView: NSView {
 final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, PlaylistPanelDelegate, NSMenuItemValidation {
     let window: NSWindow
     private let root = RootView()
-    private let videoArea = NSView()
+    let videoArea = NSView()
     private let interaction = InteractionView()
     private let overlay = GestureOverlay()
     private let waveform = WaveformView()
-    private let flash = PlayPauseFlash()
+    let flash = PlayPauseFlash()
+    lazy var extras = PlaybackExtras(player: self)
     private let playlistDot = PlaylistDot()
     private let titleOverlay = TitleOverlay()
     let dropHighlight = DropHighlight()
@@ -314,7 +316,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     private var openedFrame: NSRect?
     private var aspect: CGFloat = 16.0 / 9.0
 
-    private lazy var avBackend: AVBackend = { let b = AVBackend(); b.delegate = self; return b }()
+    lazy var avBackend: AVBackend = { let b = AVBackend(); b.delegate = self; return b }()
     private lazy var ytBackend: YouTubeBackend = { let b = YouTubeBackend(); b.delegate = self; return b }()
     private lazy var htmlBackend: HTMLVideoBackend = { let b = HTMLVideoBackend(); b.delegate = self; return b }()
     /// In-app FFmpeg decoding: transparent WebM and anything macOS's own player can't decode.
@@ -325,8 +327,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         }
         let v = NSVisualEffectView(); v.material = .hudWindow; v.blendingMode = .behindWindow; v.state = .active; return v
     }()
-    private var backend: PlayerBackend?
-    private var current: (playlist: UUID, track: UUID)?
+    var backend: PlayerBackend?
+    var current: (playlist: UUID, track: UUID)?
     private var volume: Float = Prefs.volume
     private var muted = ProcessInfo.processInfo.environment["REEL_MUTE"] != nil
     private var volumeAtDragStart: Float = 1
@@ -351,7 +353,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     var debugVolumeLevel: Float { volume }
     func debugScrollVolume(_ notches: Double) { scrollVolume(notches, precise: false) }
     var isIdle: Bool { current == nil }
-    private var isFullscreen: Bool { window.styleMask.contains(.fullScreen) }
+    var isFullscreen: Bool { window.styleMask.contains(.fullScreen) }
 
     override init() {
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -386,7 +388,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         emptyHint.alignment = .center
         emptyHint.textColor = NSColor.white.withAlphaComponent(0.28)
         // Labels sit under the interaction layer so they never block clicks, drags or drops.
-        [waveform, message, emptyHint, overlay, flash, interaction, titleOverlay, toast, dropHighlight].forEach(videoArea.addSubview)
+        [waveform, extras.overlay, message, emptyHint, overlay, flash, interaction, titleOverlay, toast, dropHighlight].forEach(videoArea.addSubview)
         waveform.isHidden = true
         playlistDot.target = self
         playlistDot.action = #selector(togglePlaylist)
@@ -452,11 +454,12 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     /// On launch: start the first item of the playlist you used last (unless something already started).
     // MARK: Resume after an update restart
 
-    private var pendingSeek: Double?
+    var pendingSeek: Double?
 
     /// Saved right before an update restart: playlist, track, position, playing or not.
     /// Where you are: saved on quit, every few seconds while something's loaded, and before an update restart.
     func saveResumePoint(forUpdate: Bool = false) {
+        extras.rememberCurrent()
         guard let c = current, c.playlist != transientID, let b = backend else { return }
         UserDefaults.standard.set([
             "playlist": c.playlist.uuidString, "track": c.track.uuidString,
@@ -526,6 +529,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         flash.frame = b
         toast.frame = b
         dropHighlight.frame = b
+        extras.overlay.frame = b
+        extras.overlay.videoAspect = aspect
         placePlaylistDot()
         message.frame = NSRect(x: 12, y: b.height / 2 - 30, width: max(0, b.width - 24), height: 60)
         message.isHidden = message.stringValue.isEmpty || b.width < 180 || b.height < 110
@@ -802,7 +807,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     }
     var debugNowPlaying: NowPlaying { nowPlaying }
 
-    private var currentTrack: Track? {
+    var currentTrack: Track? {
         guard let c = current else { return nil }
         return list(c.playlist)?.tracks.first { $0.id == c.track }
     }
@@ -812,9 +817,9 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     private var nextAutoplay = true
 
     /// Files opened from Finder / the Dock play from here: not saved, not shown, each plays once.
-    private let transientID = UUID()
-    private var transient = Playlist(name: "Opened files")
-    private func list(_ id: UUID) -> Playlist? { id == transientID ? transient : Library.shared.playlist(id) }
+    let transientID = UUID()
+    var transient = Playlist(name: "Opened files")
+    func list(_ id: UUID) -> Playlist? { id == transientID ? transient : Library.shared.playlist(id) }
 
     private func use(_ next: PlayerBackend) {
         next.autoplay = nextAutoplay
@@ -826,13 +831,22 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
             root.needsLayout = true
         }
         next.setVolume(muted ? 0 : Loudness.gain(volume))
+        next.rate = extras.speed
     }
 
     func play(playlist pid: UUID, track tid: UUID, startPaused: Bool = false) {
         nextAutoplay = !startPaused
         guard let track = list(pid)?.tracks.first(where: { $0.id == tid }) else { return }
         failTimer?.cancel()
+        extras.rememberCurrent()                 // the spot in the long video you're leaving
+        extras.stopAfterCurrent = false
         current = (pid, tid)
+        // a long video you stopped part-way through picks up there
+        if pendingSeek == nil, let at = PlaybackExtras.position(for: track) {
+            pendingSeek = at
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.toast.show("Resuming at \(formatTime(at))", symbol: "clock.arrow.circlepath", sticky: false) }
+        }
+        extras.trackChanged(track)
         // remembered for autoplay on next launch (not loose files, or a playlist opened from a file and not saved)
         if pid != transientID, Library.shared.playlist(pid)?.isUnsaved != true { Prefs.lastPlaylist = pid.uuidString }
         emptyHint.isHidden = true
@@ -867,8 +881,9 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
             Task { @MainActor in
                 let alpha = await MediaResolver.webmHasAlpha(url)
                 guard token == self.loadToken else { return }
-                if alpha {
-                    // WebKit drops WebM transparency: decode it in-app (libvpx keeps the alpha) — plays at once.
+                // MKV: Reel's own decoder (WebKit isn't made for Matroska, and can't switch audio tracks).
+                // Transparent WebM: WebKit drops the transparency; libvpx keeps it.
+                if alpha || url.pathExtension.lowercased() == "mkv" {
                     self.fallbackStage = 1
                     self.use(self.ffBackend)
                     self.ffBackend.start(url: url)
@@ -905,7 +920,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
     /// Transparent video: swap the black backdrop for Liquid Glass.
     private var videoIsTransparent = false
-    private var audioOnly = false
+    var audioOnly = false
     /// Liquid Glass shows when there's no picture: nothing loaded, audio-only, or a transparent video.
     private var wantsGlass: Bool { current == nil || videoIsTransparent || audioOnly }
 
@@ -944,6 +959,12 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     private var fallbackStage = 0
 
     /// macOS's player (or WebKit) can't decode this: decode it in-app with FFmpeg instead.
+    func backendTracksChanged() {
+        if backend === ytBackend { extras.youtubeCaptions(ytBackend.captionTracks) }
+    }
+
+    func ytCaptions(_ code: String?) { ytBackend.setCaptions(code) }
+
     func backendNeedsWebFallback() {
         guard let t = currentTrack, t.kind == .local || t.kind == .remote, fallbackStage == 0, let url = t.url else { return }
         fallbackStage = 1
@@ -980,7 +1001,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         fitFrameToAspect()
     }
 
-    private func neighbors() -> (list: [Track], index: Int)? {
+    func neighbors() -> (list: [Track], index: Int)? {
         if let c = current, let p = list(c.playlist), let i = p.tracks.firstIndex(where: { $0.id == c.track }) {
             return (p.tracks, i)
         }
@@ -989,6 +1010,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
     // Struck-through (skipped) tracks are passed over here; clicking one still plays it.
     func nextTrack(auto: Bool = false) {
+        if let c = current, let id = extras.shuffledNext() { play(playlist: c.playlist, track: id); return }
         if let (list, i) = neighbors() {
             if let n = list[(i + 1)...].first(where: { $0.isPlayableInSequence }) { play(playlist: current!.playlist, track: n.id) }
             else if current!.playlist != transientID, let first = list.first(where: { $0.isPlayableInSequence }) {
@@ -1003,6 +1025,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     }
 
     func prevTrack() {
+        if let c = current, let id = extras.shuffledPrevious() { play(playlist: c.playlist, track: id); return }
         if let (list, i) = neighbors() {
             if let p = list[..<i].last(where: { $0.isPlayableInSequence }) { play(playlist: current!.playlist, track: p.id) } else { backend?.seek(to: 0) }
         } else if let last = panel.tracks.last(where: { $0.isPlayableInSequence }) {
@@ -1091,8 +1114,9 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         }
     }
 
-    private func updateHUDState() {
+    func updateHUDState() {
         panel.setTransport(playing: backend?.isPlaying ?? false, loop: currentTrack?.loop ?? false, hasTrack: current != nil)
+        panel.setShuffle(extras.shuffle)
         if let t = currentTrack {
             titleOverlay.label.stringValue = t.displayName
             window.title = t.displayName
@@ -1129,6 +1153,14 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     func backendDidEnd() {
         guard let t = currentTrack else { return }
         if debugLog { print("END \(t.displayName) loop=\(t.loop)"); fflush(stdout) }
+        extras.forget(t)                         // watched to the end: next time it starts from the top
+        if extras.stopAfterCurrent {
+            extras.stopAfterCurrent = false
+            backend?.pause()
+            updateHUDState()
+            toast.show("Stopped after “\(t.displayName)”", symbol: "stop.circle", sticky: false)
+            return
+        }
         if t.loop {
             backend?.seek(to: 0)
             backend?.play()
@@ -1346,6 +1378,9 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         scheduleAutoClose(after: 2.5)
     }
 
+    func panelToggleShuffle() { extras.toggleShuffle() }
+    var airPlayPlayer: AVPlayer? { avBackend.player }
+
     func panelToggleLoop(track: UUID) {
         if let i = transient.tracks.firstIndex(where: { $0.id == track }) { transient.tracks[i].loop.toggle() }
         Library.shared.mutateTrack(track) { $0.loop.toggle() }
@@ -1390,6 +1425,13 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
             case "f": window.toggleFullScreen(nil)
             case "l": toggleLoop()
             case "m": hudToggleMute()
+            case "s": extras.toggleShuffle()
+            case "[": extras.slower()
+            case "]": extras.faster()
+            case "=": extras.setSpeed(1)
+            case ",": extras.step(-1)
+            case ".": extras.step(1)
+            case "v": extras.toggleSubtitles()
             default: return false
             }
         }
@@ -1417,6 +1459,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     /// Opened from Finder / the Dock / "Open With": play straight through once, outside any playlist.
     /// (Exported playlists still import as playlists.)
     func open(files: [URL]) {
+        let subs = files.filter { SubtitleReader.fileExtensions.contains($0.pathExtension.lowercased()) }
+        if !subs.isEmpty && subs.count == files.count { subs.forEach(extras.addSubtitleFile); return }
         let lists = files.filter { PlaylistFile.readNamed($0) != nil }
         if !lists.isEmpty {
             // .reel files play right away as they are; they only join your playlists if you save them
@@ -1525,7 +1569,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
                 if t.id == c.track { nowID = dup.id }
                 revealIDs.append(dup.id); continue
             }
-            t.loop = true                      // like anything added to a playlist
+            t.loop = false                     // like anything added to a playlist
             items.append(t); added.append(t.id); revealIDs.append(t.id)
         }
         Library.shared.mutate(target) { $0.tracks.append(contentsOf: items) }
@@ -1544,6 +1588,15 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         panel.newPlaylist()
     }
     @objc func menuTogglePlay(_ sender: Any?) { togglePlay() }
+    @objc func menuShuffle(_ sender: Any?) { extras.toggleShuffle() }
+    @objc func menuFind(_ sender: Any?) {
+        panelAutoOpened = false; autoCloseWork?.cancel()
+        if !panelOpen { setPanel(open: true) }
+        panel.beginSearch()
+    }
+    @objc func menuStopAfter(_ sender: Any?) { extras.toggleStopAfter() }
+    @objc func menuNextFrame(_ sender: Any?) { extras.step(1) }
+    @objc func menuPrevFrame(_ sender: Any?) { extras.step(-1) }
     @objc func menuSkipFwd(_ sender: Any?) { skip(10) }
     @objc func menuSkipBack(_ sender: Any?) { skip(-10) }
     @objc func menuNext(_ sender: Any?) { nextTrack() }
@@ -1574,6 +1627,9 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         case #selector(menuPin(_:)): item.state = Prefs.alwaysOnTop ? .on : .off
         case #selector(menuPlaylist(_:)): item.title = panelOpen ? "Hide Playlist" : "Show Playlist"
         case #selector(menuMute(_:)): item.state = muted ? .on : .off
+        case #selector(menuShuffle(_:)): item.state = extras.shuffle ? .on : .off
+        case #selector(menuStopAfter(_:)): item.state = extras.stopAfterCurrent ? .on : .off; return current != nil
+        case #selector(menuNextFrame(_:)), #selector(menuPrevFrame(_:)): return current != nil
         case #selector(menuTogglePlay(_:)): item.title = (backend?.isPlaying == true ? "Pause" : "Play") + "    Space"
         default: break
         }
@@ -1587,6 +1643,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
             .init(symbol: playing ? "pause.fill" : "play.fill", tip: playing ? "Pause" : "Play") { [weak self] _ in self?.togglePlay() },
             .init(symbol: "repeat.1", tip: (currentTrack?.loop ?? false) ? "Stop looping this track (L)" : "Loop this track (L)",
                   on: currentTrack?.loop ?? false) { [weak self] _ in self?.toggleLoop() },
+            .init(symbol: "shuffle", tip: extras.shuffle ? "Shuffle is on (S)" : "Shuffle (S)", on: extras.shuffle) { [weak self] _ in self?.extras.toggleShuffle() },
+            .init(symbol: "captions.bubble", tip: "Speed, audio track and subtitles") { [weak self] _ in self?.extras.popUpMenu(at: NSEvent.mouseLocation) },
             .init(symbol: Prefs.alwaysOnTop ? "pin.fill" : "pin", tip: "Always on top", on: Prefs.alwaysOnTop) { [weak self] _ in self?.togglePin() },
             .init(symbol: "sidebar.right", tip: panelOpen ? "Hide playlist" : "Show playlist", on: panelOpen) { [weak self] _ in self?.togglePlaylist() },
             .init(symbol: "plus", tip: "Add files…") { [weak self] _ in self?.openDocument(nil) },
