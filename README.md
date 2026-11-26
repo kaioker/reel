@@ -164,3 +164,5 @@ author and aren't covered by that license. See [LICENSE](LICENSE).
 
 Reel uses [FFmpeg](https://ffmpeg.org) (LGPL) and [libvpx](https://chromium.googlesource.com/webm/libvpx) (BSD)
 for formats macOS can't play itself. Details, source links and license texts are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Reel was built with help from Claude, Anthropic's AI assistant.
