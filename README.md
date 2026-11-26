@@ -14,6 +14,8 @@ Playlists, YouTube, transparent video and Liquid Glass, in a window that gets ou
 
 ### [⬇&nbsp; Download Reel for Mac](https://github.com/kaioker/reel/releases/latest/download/Reel.zip)
 
+**[kaioker.github.io/reel](https://kaioker.github.io/reel/)**
+
 <sub>Free · ~10 MB · nothing else to install · updates itself</sub>
 
 <br>

@@ -274,7 +274,11 @@ final class IconMenu: NSObject, AVRoutePickerViewDelegate {
     private(set) var isShowing = false
     var debugWindowNumber: Int? { panel?.windowNumber }
 
-    func show(_ items: [Item], at screenPoint: NSPoint) {
+    /// Tests: open menus here instead of at the pointer (keeps them on the test display).
+    static var debugAnchor: NSPoint?
+
+    func show(_ items: [Item], at point: NSPoint) {
+        let screenPoint = Self.debugAnchor ?? point
         close()
         let size: CGFloat = 30, pad: CGFloat = 6, gap: CGFloat = 11
         let w = items.reduce(0) { $0 + ($1.isDivider ? gap : size) } + pad * 2, h = size + pad * 2

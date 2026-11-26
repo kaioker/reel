@@ -345,6 +345,23 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     func debugHoldFlash() { flash.debugHold() }
     func debugSeek(_ t: Double) { backend?.seek(to: t) }
     var debugInteraction: InteractionView { interaction }
+    var debugRoot: RootView { root }
+    /// Website demos: size the window to this width (the shape follows the video).
+    func debugResize(width: CGFloat) {
+        let f = window.frame                     // ask for that width at the current shape (the rule keeps the video's)
+        let sz = windowWillResize(window, to: NSSize(width: width, height: width * f.height / max(1, f.width)))
+        window.setFrame(NSRect(origin: .zero, size: sz), display: true)
+        debugPlaceOnTestScreen()
+    }
+
+    /// Tests and demos: REEL_SCREEN="HP" (part of a display's name) centres the window on that display,
+    /// so test windows stay off the screens you're working on.
+    func debugPlaceOnTestScreen() {
+        guard let name = ProcessInfo.processInfo.environment["REEL_SCREEN"],
+              let s = NSScreen.screens.first(where: { $0.localizedName.localizedCaseInsensitiveContains(name) }) else { window.center(); return }
+        let v = s.visibleFrame, f = window.frame
+        window.setFrameOrigin(NSPoint(x: v.midX - f.width / 2, y: v.midY - f.height / 2))
+    }
     var debugVideoArea: NSView { videoArea }
     var debugTransparent: Bool { videoIsTransparent }
     var debugBackendName: String { backend.map { String(describing: type(of: $0)) } ?? "-" }
