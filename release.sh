@@ -20,7 +20,7 @@ ditto -c -k --keepParent Reel.app "$OUT/Reel.zip"
 rm -rf Reel.app   # the zip is what ships; don't leave a second copy of Reel lying around
 
 git add VERSION
-git commit -q -m "Release $TAG"
+git commit -q -m "Release $TAG" -m "Reel was designed and directed by kaioker and built by Claude, Anthropic's AI."
 git tag "$TAG"
 git push -q
 git push -q origin "$TAG"
