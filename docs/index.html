@@ -1,14 +1,14 @@
 <!doctype html>
-<html lang="en" class="no-js">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Reel Media Player — big picture, tiny window. For Mac.</title>
-  <meta name="description" content="Reel is a free video player for Mac that floats above your work: all picture, no clutter. Playlists, YouTube, subtitles, transparent video and more.">
-  <meta name="theme-color" content="#ffffff">
+  <title>Reel Media Player — a tiny, always-on-top video player for Mac</title>
+  <meta name="description" content="Reel is a free, tiny, always-on-top video player for Mac: all picture, no clutter. Playlists, YouTube, subtitles, transparent video and more.">
+  <meta name="theme-color" content="#7a3cf0">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Reel Media Player">
-  <meta property="og:description" content="Big picture. Tiny window. A free video player for Mac that floats above your work.">
+  <meta property="og:description" content="A tiny, always-on-top video player for Mac. All picture, no clutter. Free.">
   <meta property="og:image" content="https://kaioker.github.io/reel/assets/og-card.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -18,13 +18,13 @@
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;500;600;700;800;900&family=Roboto+Slab:wght@700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;500;700;800&family=Roboto+Slab:wght@700&display=swap">
   <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
 
-<!-- The logo: icon on the left, "Reel Media Player" on the right, drawn as SVG so the text's cap height and
-     baseline sit exactly on the icon's top and bottom edges (Roboto Slab cap height = 0.7109 em). -->
+<!-- The logo: icon on the left, "Reel Media Player" on the right. Drawn as SVG so the text's cap height and
+     baseline land exactly on the icon's top and bottom edges (Roboto Slab cap height = 0.7109 em). -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
     <linearGradient id="reel-ink" x1="0" y1="0" x2="1" y2="0">
@@ -42,11 +42,12 @@
   <div class="wrap nav-row">
     <a class="lockup" href="#top" aria-label="Reel Media Player — home"><svg role="img" aria-label="Reel Media Player"><use href="#lockup"/></svg></a>
     <nav class="links" aria-label="Sections">
-      <a href="#story">Overview</a>
       <a href="#features">Features</a>
-      <a href="#download">Download</a>
+      <a href="#playlists">Playlists</a>
+      <a href="#watching">Watching</a>
+      <a href="#shortcuts">Shortcuts</a>
     </nav>
-    <a class="btn btn-small" href="https://github.com/kaioker/reel/releases/latest/download/Reel.zip">Download</a>
+    <a class="btn btn-small" href="#download">Download</a>
   </div>
 </header>
 
@@ -54,168 +55,201 @@
 
   <!-- Hero -->
   <section class="hero">
-    <div class="aura" aria-hidden="true"><i class="a1"></i><i class="a2"></i><i class="a3"></i><i class="a4"></i></div>
-    <div class="wrap hero-copy">
-      <p class="eyebrow reveal">Reel Media Player · free for Mac</p>
-      <h1 class="reveal">Big picture.<br><span class="grad">Tiny window.</span></h1>
-      <p class="lede reveal">A video player that floats above your work. All picture, no clutter, and always right where you left it.</p>
-      <div class="cta reveal">
-        <a class="btn btn-big" href="https://github.com/kaioker/reel/releases/latest/download/Reel.zip">
-          <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14" /></svg>Download Reel</a>
-        <a class="link-arrow" href="#story">See it in action <span aria-hidden="true">›</span></a>
-      </div>
-      <p class="fine reveal"><span data-version>Latest version</span> · macOS 13 or later · Apple Silicon</p>
-    </div>
-    <div class="wrap">
-      <div class="desktop hero-desk" data-tilt>
-        <div class="menubar" aria-hidden="true"><b></b><span></span><span></span><span></span><em></em></div>
-        <video class="clip hero-clip" data-clip="hero" muted loop playsinline width="1090" height="462" poster="assets/hero.png"
-               aria-label="Reel playing a dance video with its playlist open"></video>
-      </div>
-    </div>
-  </section>
-
-  <!-- Scroll story: big → tiny → on top -->
-  <section id="story" class="story" aria-label="Big when you want it, tiny when you don't, always on top">
-    <div class="story-pin">
-      <div class="story-captions" aria-hidden="true">
-        <h2 class="cap c1">Big when you<br><span class="grad">want it.</span></h2>
-        <h2 class="cap c2">Tiny when<br><span class="grad">you don't.</span></h2>
-        <h2 class="cap c3">And always<br><span class="grad">on top.</span></h2>
-      </div>
-      <div class="story-stage">
-        <div class="desktop story-desk">
-          <div class="menubar" aria-hidden="true"><b></b><span></span><span></span><span></span><em></em></div>
-          <div class="win doc" aria-hidden="true"><div class="tb"><i></i><i></i><i></i></div><p></p><p></p><p></p><p></p><p></p><p></p><p></p></div>
-          <div class="win web" aria-hidden="true"><div class="tb"><i></i><i></i><i></i><s></s></div><div class="hero-block"></div><div class="cols"><span></span><span></span><span></span></div></div>
-          <div class="floater"><video class="clip" data-clip="hero" muted loop playsinline width="1090" height="462" poster="assets/hero.png"
-                 aria-label="The Reel window shrinking into the corner, above other windows"></video></div>
+    <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="dot"></span> Free for Mac · macOS 13 and later</p>
+        <h1>Your videos, floating <span class="hl">right where you want them.</span></h1>
+        <p class="lede">Reel is a tiny, always-on-top player that's all picture and no clutter. Park it in a corner,
+          keep working, and let your playlists, YouTube videos and favourite clips play.</p>
+        <div class="cta">
+          <a class="btn btn-big" href="https://github.com/kaioker/reel/releases/latest/download/Reel.zip">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14" /></svg>
+            Download Reel
+          </a>
+          <a class="btn btn-ghost" href="#features">See what it does</a>
         </div>
+        <p class="fine"><span data-version>Latest version</span> · about 10 MB · updates itself · Apple Silicon</p>
+      </div>
+      <div class="hero-shot">
+        <img src="assets/player-playlist.png" width="1232" height="576" alt="Reel playing a dance video with its playlist open beside it">
       </div>
     </div>
-    <div class="story-static wrap">
-      <p>The video fills the whole window, title bar and all, and the controls only appear while your mouse moves. Shrink it
-        far smaller than other players; it keeps the video's shape, parks in its corner, and floats above everything else.</p>
+  </section>
+
+  <!-- Small and on top -->
+  <section id="features" class="band">
+    <div class="wrap split">
+      <div class="desk">
+        <div class="desk-bar"><span></span><span></span><span></span></div>
+        <div class="desk-doc">
+          <i style="width:62%"></i><i style="width:88%"></i><i style="width:74%"></i><i style="width:80%"></i>
+          <i style="width:55%"></i><i style="width:84%"></i><i style="width:68%"></i>
+        </div>
+        <img class="desk-player" src="assets/player-small.png" width="732" height="461" alt="A small Reel window floating over other work">
+      </div>
+      <div class="copy">
+        <p class="kicker k-sun">Stays out of your way</p>
+        <h2>All picture. No chrome. Always on top.</h2>
+        <p>The video fills the whole window, title bar included, and the controls only appear while your mouse moves.
+          Shrink it far smaller than other players; it keeps the video's shape and stays parked in its corner,
+          floating above everything else.</p>
+        <ul class="ticks">
+          <li><b>Hotkeys while hovering:</b> play, skip and change tracks with the mouse over Reel, even while you type somewhere else.</li>
+          <li><b>Headphones and media keys:</b> AirPods taps, headset buttons and ⏯ ⏭ ⏮ all control Reel.</li>
+          <li><b>Picks up where you left off,</b> right down to the second.</li>
+        </ul>
+      </div>
     </div>
   </section>
 
-  <!-- Statement -->
-  <section class="statement">
-    <div class="wrap">
-      <h2 class="mega reveal">All picture.<br><span class="grad">No chrome.</span></h2>
-      <p class="lede center reveal">No toolbars, no frames, no clutter. Just the video, and everything else when you reach for it:
-        click to pause, right-drag to scrub, or press a key while your mouse is over it, even while you're typing somewhere else.</p>
+  <!-- Playlists -->
+  <section id="playlists" class="band tint">
+    <div class="wrap split flip">
+      <figure class="stage">
+        <video autoplay muted loop playsinline preload="metadata" poster="assets/slide-poster.jpg" width="1022" height="436"
+               aria-label="Clicking the playlist's name slides over to all playlists, then into another one">
+          <source src="assets/slide.mp4" type="video/mp4">
+        </video>
+      </figure>
+      <div class="copy">
+        <p class="kicker k-pink">Playlists</p>
+        <h2>A playlist that slides in beside the picture.</h2>
+        <p>Click the playlist's name, or swipe with two fingers, to glide over to all your playlists. Pick one and
+          it's ready; nothing starts until you choose a track.</p>
+        <ul class="ticks">
+          <li><b>Shuffle, loop, skip</b> and <b>play next</b> for every track.</li>
+          <li><b>Search as you type</b> and sort by title or length.</li>
+          <li><b>Share playlists as <code>.reel</code> files.</b> A friend double-clicks one and it just plays; one click saves it.</li>
+        </ul>
+      </div>
     </div>
   </section>
 
-  <!-- Feature grid -->
-  <section id="features" class="features">
+  <!-- Drop anything -->
+  <section class="band">
+    <div class="wrap split">
+      <figure class="stage">
+        <video autoplay muted loop playsinline preload="metadata" poster="assets/drop-poster.jpg" width="1139" height="485"
+               aria-label="Dragging a video over Reel opens the playlist, and it's added where it's dropped">
+          <source src="assets/drop.mp4" type="video/mp4">
+        </video>
+      </figure>
+      <div class="copy">
+        <p class="kicker k-mint">Drag, drop, paste</p>
+        <h2>Drop it on the picture to play. Drop it on the list to keep.</h2>
+        <p>Drag a file, a folder or a link over Reel and the playlist opens so you can aim. On the video it plays
+          straight away; on the playlist it lands exactly where you let go. <kbd>⌘V</kbd> works the same, going
+          wherever your pointer is.</p>
+        <ul class="ticks">
+          <li><b>YouTube playlists and <code>.reel</code> files ask first:</b> play without saving, save as a new playlist, or add to the one you're viewing.</li>
+          <li><b>Anything playing that isn't in a playlist</b> gets an <b>Add</b> button.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Watching -->
+  <section id="watching" class="band tint">
     <div class="wrap">
-      <h2 class="section-title reveal">Everything you'd want.<br><span class="grad">Nothing you don't.</span></h2>
-
-      <div class="bento">
-        <article class="tile t-wide reveal">
-          <div class="tile-copy">
-            <p class="kicker pink">Playlists</p>
-            <h3>A playlist that slides in beside the picture.</h3>
-            <p>Click the name, or swipe with two fingers, to glide between your playlists. Shuffle, loop, skip, search, and share them as <code>.reel</code> files.</p>
-          </div>
-          <div class="tile-media"><video class="clip" data-clip="slide" muted loop playsinline width="1022" height="434" poster="assets/slide.png"
-               aria-label="The playlist sliding over to all playlists and back"></video></div>
-        </article>
-
-        <article class="tile t-stat reveal">
-          <p class="kicker violet">Hardware decoding</p>
-          <p class="big-num grad">6%</p>
-          <p>of the processor to play 1080p HEVC. Video decodes on your Mac's media engine, so it stays cool and quiet.</p>
-        </article>
-
-        <article class="tile t-stat alt reveal">
-          <p class="kicker mint">Light</p>
-          <p class="big-num grad-mint">10 MB</p>
-          <p>Everything it needs is inside. Nothing else to install, and it updates itself.</p>
-        </article>
-
-        <article class="tile t-wide reveal">
-          <div class="tile-copy">
-            <p class="kicker sky">Drag, drop, paste</p>
-            <h3>Drop on the picture to play. Drop on the list to keep.</h3>
-            <p>The playlist opens as you drag, so you can aim. <kbd>⌘V</kbd> works the same, going wherever your pointer is.</p>
-          </div>
-          <div class="tile-media"><video class="clip" data-clip="drop" muted loop playsinline width="1116" height="486" poster="assets/drop.png"
-               aria-label="A video dragged over Reel, then dropped into the playlist"></video></div>
-        </article>
-
-        <article class="tile reveal">
-          <p class="kicker sun">Scrubbing</p>
+      <div class="center-head">
+        <p class="kicker k-sky">Watching</p>
+        <h2>Everything you need, nothing you don't.</h2>
+      </div>
+      <div class="cards2">
+        <article class="card">
+          <figure class="stage tight">
+            <video autoplay muted loop playsinline preload="metadata" poster="assets/scrub-poster.jpg" width="820" height="462"
+                   aria-label="Right-dragging across the video to seek">
+              <source src="assets/scrub.mp4" type="video/mp4">
+            </video>
+          </figure>
           <h3>The whole picture is the seek bar.</h3>
-          <div class="tile-media small"><video class="clip" data-clip="scrub" muted loop playsinline width="820" height="460" poster="assets/scrub.png"
-               aria-label="Right-dragging across the video to seek"></video></div>
-          <p>Right-drag sideways to scrub, up and down for volume.</p>
+          <p>Right-drag sideways to scrub and up or down for volume, or swipe with two fingers. Long videos pick up where you stopped.</p>
         </article>
+        <article class="card">
+          <figure class="stage tight">
+            <img src="assets/player-subtitles.png" width="820" height="461" loading="lazy" alt="Reel showing a subtitle along the bottom of the video">
+          </figure>
+          <h3>Subtitles and audio tracks.</h3>
+          <p>Subtitle files, subtitles inside MKV and MP4 files, and YouTube captions; remembered for each track. Switch languages and commentary tracks too.</p>
+        </article>
+      </div>
+      <ul class="chips">
+        <li class="c1">Speed ¼× to 2×</li><li class="c2">Frame by frame</li><li class="c3">Stop after this</li>
+        <li class="c4">AirPlay</li><li class="c5">Hardware decoding</li><li class="c6">Remembers your spot</li>
+      </ul>
+    </div>
+  </section>
 
-        <article class="tile reveal">
-          <p class="kicker pink">Subtitles</p>
-          <h3>Subtitles and audio tracks, remembered.</h3>
-          <div class="tile-media small"><img src="assets/player-subtitles.png" width="820" height="461" loading="lazy" alt="A subtitle along the bottom of the video"></div>
-          <p>Subtitle files, subtitles inside MKV and MP4, and YouTube captions.</p>
-        </article>
+  <!-- Formats -->
+  <section class="band">
+    <div class="wrap">
+      <div class="center-head">
+        <p class="kicker k-violet">Plays almost anything</p>
+        <h2>Files, links, YouTube. Even see-through video.</h2>
+        <p class="sub">Formats macOS can't play go through Reel's built-in decoder, using your Mac's video hardware.
+          Nothing to convert, nothing else to install.</p>
+      </div>
+      <div class="formats">
+        <div class="fmt f1"><b>MP4 · MOV · M4V</b><span>Apple's own formats</span></div>
+        <div class="fmt f2"><b>MKV · WebM · AVI</b><span>with every audio track</span></div>
+        <div class="fmt f3"><b>Transparent WebM</b><span>floats over your desktop</span></div>
+        <div class="fmt f4"><b>YouTube</b><span>videos and whole playlists</span></div>
+        <div class="fmt f5"><b>Links &amp; HLS</b><span>direct video and live streams</span></div>
+        <div class="fmt f6"><b>MP3 · FLAC · WAV</b><span>audio with a waveform</span></div>
+      </div>
+      <div class="menus">
+        <p class="menus-label">Everything's one right-click away</p>
+        <img src="assets/menu-video.png" width="413" height="42" loading="lazy" alt="Reel's right-click menu on the video: play, loop, shuffle, skip, rename, show in Finder, subtitles, AirPlay, then on top, playlist, add, paste and full screen">
+      </div>
+    </div>
+  </section>
 
-        <article class="tile reveal">
-          <p class="kicker violet">Keyboard</p>
-          <h3>Made for the keyboard.</h3>
-          <div class="keys">
-            <span><kbd>Space</kbd> Play</span><span><kbd>⌘→</kbd> Next</span><span><kbd>S</kbd> Shuffle</span>
-            <span><kbd>[</kbd><kbd>]</kbd> Speed</span><span><kbd>V</kbd> Subtitles</span><span><kbd>,</kbd><kbd>.</kbd> Frames</span>
-          </div>
-          <p>Speed from ¼× to 2×, frame by frame, stop after this one.</p>
-        </article>
-
-        <article class="tile t-wide formats-tile reveal">
-          <div class="tile-copy">
-            <p class="kicker mint">Plays almost anything</p>
-            <h3>Files, links, YouTube. Even see-through video.</h3>
-            <p>Formats macOS can't play go through Reel's built-in decoder. Nothing to convert.</p>
-          </div>
-          <ul class="fmt-cloud" aria-label="Supported formats">
-            <li class="f1">MP4</li><li class="f2">MKV</li><li class="f3">WebM</li><li class="f4">YouTube</li><li class="f5">MOV</li>
-            <li class="f6">Transparent WebM</li><li class="f2">HLS</li><li class="f1">MP3</li><li class="f5">FLAC</li><li class="f3">Bilibili</li>
-            <li class="f4">AVI</li><li class="f6">WAV</li>
-          </ul>
-        </article>
-
-        <article class="tile t-stat reveal">
-          <p class="kicker sky">Listening</p>
-          <svg class="tile-icon" viewBox="0 0 64 64" aria-hidden="true"><path d="M14 38v-6a18 18 0 0 1 36 0v6"/><rect x="10" y="36" width="10" height="16" rx="5"/><rect x="44" y="36" width="10" height="16" rx="5"/></svg>
-          <h3>Headphones and media keys.</h3>
-          <p>AirPods taps, headset buttons and ⏯ ⏭ ⏮ all control Reel. AirPlay to a TV, too.</p>
-        </article>
-
-        <article class="tile t-full menu-tile reveal">
-          <p class="kicker sun">One right-click away</p>
-          <img src="assets/menu-video.png" width="413" height="42" loading="lazy" alt="Reel's right-click menu: play, loop, shuffle, skip, rename, show in Finder, subtitles, AirPlay, on top, playlist, add, paste, full screen">
-        </article>
+  <!-- Shortcuts -->
+  <section id="shortcuts" class="band tint">
+    <div class="wrap">
+      <div class="center-head">
+        <p class="kicker k-pink">Shortcuts</p>
+        <h2>Made for the keyboard, too.</h2>
+      </div>
+      <div class="keys">
+        <div><kbd>Space</kbd><span>Play / pause</span></div>
+        <div><kbd>←</kbd><kbd>→</kbd><span>Back / forward 10 s</span></div>
+        <div><kbd>⌘←</kbd><kbd>⌘→</kbd><span>Previous / next track</span></div>
+        <div><kbd>⌘↑</kbd><kbd>⌘↓</kbd><span>Previous / next playlist</span></div>
+        <div><kbd>S</kbd><span>Shuffle</span></div>
+        <div><kbd>L</kbd><span>Loop this track</span></div>
+        <div><kbd>[</kbd><kbd>]</kbd><span>Slower / faster</span></div>
+        <div><kbd>,</kbd><kbd>.</kbd><span>One frame back / forward</span></div>
+        <div><kbd>V</kbd><span>Subtitles on / off</span></div>
+        <div><kbd>M</kbd><span>Mute</span></div>
+        <div><kbd>F</kbd><span>Full screen</span></div>
+        <div><kbd>⌘P</kbd><span>Show the playlist</span></div>
       </div>
     </div>
   </section>
 
   <!-- Download -->
-  <section id="download" class="download">
+  <section id="download" class="band">
     <div class="wrap">
-      <div class="dl-wrap reveal">
+      <div class="dl-wrap">
         <img class="peek" src="assets/creature-peek.png" width="766" height="900" alt="" aria-hidden="true">
         <div class="dl">
+        <div class="dl-inner">
           <h2>Get Reel. It's free.</h2>
-          <p class="sub">For Macs with Apple Silicon on macOS 13 Ventura or newer.</p>
+          <p class="sub">For Macs with Apple Silicon (M1 and later) on macOS 13 Ventura or newer.</p>
           <a class="btn btn-big btn-light" href="https://github.com/kaioker/reel/releases/latest/download/Reel.zip">
             <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14" /></svg>
-            Download Reel <span class="ver" data-version-short></span></a>
+            Download Reel <span class="ver" data-version-short></span>
+          </a>
           <ol class="steps">
-            <li><b>Open the download</b> and drag <b>Reel</b> into Applications.</li>
+            <li><b>Open the download</b> and drag <b>Reel</b> into your Applications folder.</li>
             <li><b>Open Reel.</b> The first time, macOS asks whether to trust it: go to <b>System Settings → Privacy &amp; Security</b> and click <b>Open Anyway</b>.</li>
             <li><b>That's it.</b> Reel checks for updates each time it starts and installs them for you.</li>
           </ol>
           <p class="fine light">Prefer Terminal? <code>curl -fsSL https://raw.githubusercontent.com/kaioker/reel/main/install.sh | zsh</code></p>
+        </div>
         </div>
       </div>
     </div>
