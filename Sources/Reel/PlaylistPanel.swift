@@ -150,7 +150,13 @@ final class TrackTable: NSTableView, RightClickHandling {
     /// Drag left the list or finished (the delegate only hears about entering/dropping).
     var onDragExit: (() -> Void)?
     override func draggingExited(_ sender: NSDraggingInfo?) { super.draggingExited(sender); onDragExit?() }
-    override func draggingEnded(_ sender: NSDraggingInfo) { super.draggingEnded(sender); onDragExit?() }
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        // draggingEnded is optional in NSDraggingDestination and NSTableView doesn't implement it, so only pass it on
+        // if it ever does: calling a missing super throws "unrecognized selector" while AppKit is finishing the drag,
+        // which leaves the drag half-finished (later drops are refused) and sometimes crashes Reel.
+        if NSTableView.instancesRespond(to: #selector(NSDraggingDestination.draggingEnded(_:))) { super.draggingEnded(sender) }
+        onDragExit?()
+    }
     var onPlay: ((Int) -> Void)?
     var onRename: ((Int, NSPoint) -> Void)?
     var onDelete: (() -> Void)?
