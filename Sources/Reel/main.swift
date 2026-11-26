@@ -475,7 +475,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let pl = self.player!, panel = pl.panel, lib = Library.shared, ia = pl.debugInteraction
             let width = Double(ProcessInfo.processInfo.environment["REEL_DEMO_WIDTH"] ?? "") ?? 960
             let p = lib.playlists[0]
-            func track(_ n: String) -> UUID { p.tracks.first { $0.displayName == n }?.id ?? p.tracks[0].id }
+            // REEL_DEMO_TRACK: the track a scene starts on (instead of its default)
+            let startOverride = ProcessInfo.processInfo.environment["REEL_DEMO_TRACK"]
+            func track(_ n: String) -> UUID { let want = startOverride ?? n; return p.tracks.first { $0.displayName == want }?.id ?? p.tracks[0].id }
             func clickTitle() {
                 let f = pl.panel.mode == .playlists ? nil : panel.nameField
                 if let f { f.onClick?() } else { panel.toggleMode() }
@@ -484,6 +486,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             var steps: [(Double, () -> Void)] = []
             let t0 = 3.0                                  // gives the recorder time to attach
             switch scene {
+            case "hero":
+                // just playing, with the playlist open (for the page's opening shot)
+                let seconds = Double(ProcessInfo.processInfo.environment["REEL_DEMO_SECONDS"] ?? "") ?? 9
+                steps = [(0.6, { pl.panelPlay(playlist: p.id, track: track("Crystal Cave")); pl.setPanel(open: true) }),
+                         (1.6, { pl.debugResize(width: width) }),
+                         (t0 + seconds, { NSApp.terminate(nil) })]
             case "slide":
                 steps = [(0.6, { pl.panelPlay(playlist: p.id, track: track("Golden Hour")); pl.setPanel(open: true) }),
                          (1.6, { pl.debugResize(width: width) }),
