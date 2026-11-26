@@ -844,6 +844,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, N
         cell.title.toolTip = t.customName != nil ? "\(t.autoTitle)\n\(t.url?.absoluteString ?? "")" : (t.url?.absoluteString ?? "")
         var d = t.subtitle
         if let dur = t.duration, dur > 0 { d += " · " + formatTime(dur) }
+        if t.level != 0 { d += " · " + TrackLevel.label(t.level) }
         if t.customName != nil { d += " · " + t.autoTitle }
         cell.detail.stringValue = d
         let playing = delegate?.nowPlayingTrackID == t.id

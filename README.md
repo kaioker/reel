@@ -83,6 +83,11 @@ double-clicking a file in Finder opens it in Reel.
 - Each playlist is saved as a `.reel` file in `~/Library/Application Support/Reel/Playlists`, easy to back up or copy.
 - **Shuffle**, per-track loop, play next, rename, and **skip**: struck-through tracks stay in the list, but playback
   passes over them. Playlists play through and round to the top; loop a track with L.
+- **Track volume:** level a loud (or quiet) track against the rest of an album, from −24 to +12 dB on top of Reel's
+  volume. Pick a level from the speaker icon in a track's right-click (for every selected track), or nudge the playing
+  one with ⌥⌘↑ / ⌥⌘↓. The row shows it, it's kept in exported `.reel` files, and Reel's volume stays the one control
+  for everything. Turned up past full volume, a track is amplified with a soft limit so peaks don't clip (HLS streams,
+  AirPlay and YouTube stop at full volume).
 - **Search** as you type, and **sort** by title or length (⌘Z undoes it).
 - **Stop after this track**, from the Playback menu.
 - **Share playlists as `.reel` files.** Export one and send it to a friend. Double-clicking it plays it straight away
@@ -103,6 +108,7 @@ double-clicking a file in Finder opens it in Reel.
 | [ · ] · = | Slower · faster · normal speed (¼× to 2×) |
 | , · . | One frame back · forward |
 | V | Subtitles on / off |
+| ⌥⌘↑ ⌥⌘↓ | Playing track louder / quieter by 1 dB (its own level, on top of Reel's volume) |
 | Right-drag ← → / ↑ ↓ | Seek / volume (or two-finger swipe; mouse wheel is volume) |
 | Right-click | Quick menu. The video and a playlist track share the same track icons (play, loop, shuffle, skip, rename, Finder, AirPlay); then the video adds speed / audio / subtitles, on top, playlist, add, paste, full screen |
 | Two-finger swipe ← → on the playlist | Slide between the playlist and all playlists |

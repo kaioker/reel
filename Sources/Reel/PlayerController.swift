@@ -369,6 +369,9 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     var debugLiveTag: Bool { titleOverlay.live }
     var debugIsLive: Bool { backend?.isLive ?? false }
     var debugVideoSize: CGSize { nativeSize ?? .zero }
+    /// Tests: set Reel's volume (0…1 level) without the overlay.
+    func debugSetVolume(_ level: Float) { volume = level; muted = false; applyVolume() }
+    var debugFFBackend: FFBackend { ffBackend }
     var debugAudio: String { (backend as? FFBackend)?.debugAudioRendering ?? "-" }
     /// What the audio player is actually set to (AVPlayer gain), for REEL_VOLUME_TEST.
     var debugPlayerGain: Float { (backend as? AVBackend)?.player.volume ?? -1 }
@@ -886,7 +889,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
             videoArea.addSubview(next.view, positioned: .below, relativeTo: waveform)
             root.needsLayout = true
         }
-        next.setVolume(muted ? 0 : Loudness.gain(volume))
+        next.setVolume(outputGain)
         next.rate = extras.speed
     }
 
@@ -1407,7 +1410,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         let step = precise ? Float(d) / 300 : Float(d) * 0.05   // 300 pt swipe = full range; 5% per wheel notch
         let v = max(0, min(1, (muted ? 0 : volume) + step))
         volume = v; muted = false
-        backend?.setVolume(Loudness.gain(v))
+        applyVolume()
         overlay.axis = .vertical
         overlay.fraction = CGFloat(v)
         overlay.text = v == 0 ? "Muted" : "\(Int((v * 100).rounded()))%"
@@ -1442,7 +1445,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         let v = max(0, min(1, volumeAtDragStart + Float(delta)))
         volume = v
         muted = false
-        backend?.setVolume(Loudness.gain(v))
+        applyVolume()
         overlay.axis = .vertical
         overlay.fraction = CGFloat(v)
         overlay.text = v == 0 ? "Muted" : "\(Int((v * 100).rounded()))%"
@@ -1451,13 +1454,73 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
     func hudToggleMute() {
         muted.toggle()
-        backend?.setVolume(muted ? 0 : Loudness.gain(volume))
+        applyVolume()
         toast.show(muted ? "Muted" : "Sound on", symbol: muted ? "speaker.slash.fill" : "speaker.wave.2.fill", sticky: false)
     }
 
     // MARK: PlaylistPanelDelegate
 
     func panelPlay(playlist: UUID, track: UUID) { play(playlist: playlist, track: track) }
+
+    // MARK: Track level (a track's own volume, on top of Reel's)
+
+    /// What the player is given: Reel's volume, times the playing track's own level (may be above 1).
+    var outputGain: Float {
+        muted ? 0 : Loudness.gain(volume) * TrackLevel.factor(currentTrack?.level ?? 0)
+    }
+    func applyVolume() { backend?.setVolume(outputGain) }
+
+    /// Sets the level of these tracks (in a playlist, or the loose ones). The playing one changes straight away.
+    func setTrackLevel(_ db: Double, tracks ids: [UUID], in pid: UUID) {
+        let level = TrackLevel.clamp(db)
+        for id in ids {
+            if pid == transientID {
+                if let i = transient.tracks.firstIndex(where: { $0.id == id }) { transient.tracks[i].levelDB = level == 0 ? nil : level }
+            } else {
+                Library.shared.mutateTrack(id) { $0.levelDB = level == 0 ? nil : level }
+            }
+        }
+        if pid == transientID { panel.refreshNowPlaying() }
+        if let c = current, c.playlist == pid, ids.contains(c.track) { applyVolume() }
+        var note = ids.count == 1 ? "Track volume \(TrackLevel.label(level))" : "\(ids.count) tracks: \(TrackLevel.label(level))"
+        if level == 0 { note = ids.count == 1 ? "Track volume as recorded" : "\(ids.count) tracks as recorded" }
+        // YouTube's player stops at 100 %: a boost only shows while Reel's volume has room
+        if level > 0, let t = currentTrack, ids.contains(t.id), t.kind == .youtube, Loudness.gain(volume) * TrackLevel.factor(level) > 1 {
+            note += " · YouTube can't go above full volume"
+        }
+        toast.show(note, symbol: level > 0 ? "speaker.plus.fill" : level < 0 ? "speaker.minus.fill" : "speaker.wave.2.fill", sticky: false)
+    }
+
+    /// ⌥⌘↑ / ⌥⌘↓: the playing track a decibel louder or quieter.
+    func nudgeTrackLevel(_ delta: Double) {
+        guard let c = current, let t = currentTrack else { NSSound.beep(); return }
+        setTrackLevel(t.level + delta, tracks: [c.track], in: c.playlist)
+    }
+    @objc func menuTrackLouder(_ sender: Any?) { nudgeTrackLevel(1) }
+    @objc func menuTrackQuieter(_ sender: Any?) { nudgeTrackLevel(-1) }
+    @objc func menuTrackLevelReset(_ sender: Any?) {
+        guard let c = current else { return }
+        setTrackLevel(0, tracks: [c.track], in: c.playlist)
+    }
+
+    /// The track volume list (from a track's right-click icons): the presets, with the current level ticked.
+    func showTrackLevelMenu(for tracks: [Track], in pid: UUID, at screenPoint: NSPoint) {
+        let m = NSMenu()
+        let levels = Set(tracks.map(\.level))
+        let header = tracks.count == 1 ? "Track volume" : "Volume of \(tracks.count) tracks"
+        if #available(macOS 14.0, *) { m.addItem(.sectionHeader(title: header)) }
+        else { let h = NSMenuItem(title: header, action: nil, keyEquivalent: ""); h.isEnabled = false; m.addItem(h) }
+        var presets = TrackLevel.presets
+        if levels.count == 1, let l = levels.first, !presets.contains(l) { presets.append(l); presets.sort(by: >) }   // e.g. +5 from ⌥⌘↑
+        for db in presets {
+            let i = ClosureMenuItem(title: db == 0 ? "0 dB (as recorded)" : TrackLevel.label(db)) { [weak self] in
+                self?.setTrackLevel(db, tracks: tracks.map(\.id), in: pid)
+            }
+            i.state = levels == [db] ? .on : .off
+            m.addItem(i)
+        }
+        DispatchQueue.main.async { m.popUp(positioning: nil, at: screenPoint, in: nil) }
+    }
     func panelPrev() { prevTrack() }
     func panelPlayPause() { togglePlay() }
     func panelNext() { nextTrack() }
@@ -1754,6 +1817,12 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         case #selector(menuShuffle(_:)): item.state = extras.shuffle ? .on : .off
         case #selector(menuStopAfter(_:)): item.state = extras.stopAfterCurrent ? .on : .off; return current != nil
         case #selector(menuNextFrame(_:)), #selector(menuPrevFrame(_:)): return current != nil
+        case #selector(menuTrackLouder(_:)): return current != nil && (currentTrack?.level ?? 0) < TrackLevel.range.upperBound
+        case #selector(menuTrackQuieter(_:)): return current != nil && (currentTrack?.level ?? 0) > TrackLevel.range.lowerBound
+        case #selector(menuTrackLevelReset(_:)):
+            let l = currentTrack?.level ?? 0
+            item.title = l == 0 ? "Reset Track Volume" : "Reset Track Volume (now \(TrackLevel.label(l)))"
+            return l != 0
         case #selector(menuTogglePlay(_:)): item.title = (backend?.isPlaying == true ? "Pause" : "Play") + "    Space"
         default: break
         }
@@ -1788,6 +1857,10 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
                 guard let u = t.url else { return }
                 NSPasteboard.general.clearContents(); NSPasteboard.general.setString(u.absoluteString, forType: .string) })
         }
+        let levelled = picked.contains { $0.level != 0 }
+        items.append(.init(symbol: "speaker.wave.2", tip: t.level == 0 ? "Track volume — level this track against the others (⌥⌘↑ / ⌥⌘↓ while it plays)"
+                                                                     : "Track volume: \(TrackLevel.label(t.level))", on: levelled) { [weak self] _ in
+            self?.showTrackLevelMenu(for: picked, in: pid, at: NSEvent.mouseLocation) })
         if isCurrent {
             items.append(.init(symbol: "captions.bubble", tip: "Speed, audio track, subtitles, stop after this") { [weak self] _ in
                 self?.extras.popUpMenu(at: NSEvent.mouseLocation) })

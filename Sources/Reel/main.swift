@@ -53,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let u = ProcessInfo.processInfo.environment["REEL_PLAY"] {
             if u == "first" { player.nextTrack() } else { player.panel.add(text: u, at: nil, playFirst: true) }
         }
-        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST", "REEL_REELFILE_TEST", "REEL_ASK_TEST", "REEL_EXTRAS_TEST", "REEL_SUBPREF_TEST", "REEL_HW_TEST", "REEL_MENUS_TEST", "REEL_LIVE_TEST", "REEL_LISTPARSE_TEST", "REEL_DEMO"].contains { ProcessInfo.processInfo.environment[$0] != nil }
+        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST", "REEL_REELFILE_TEST", "REEL_ASK_TEST", "REEL_EXTRAS_TEST", "REEL_SUBPREF_TEST", "REEL_HW_TEST", "REEL_MENUS_TEST", "REEL_LIVE_TEST", "REEL_LISTPARSE_TEST", "REEL_LEVEL_TEST", "REEL_LOOPAUDIO_TEST", "REEL_DEMO"].contains { ProcessInfo.processInfo.environment[$0] != nil }
         if !testing { NSApp.activate(ignoringOtherApps: true) }
         if let dir = ProcessInfo.processInfo.environment["REEL_DOT_TEST"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
@@ -740,6 +740,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 dump("changed:")
             }
             fflush(stdout); NSApp.terminate(nil)
+        }
+        if let dir = ProcessInfo.processInfo.environment["REEL_LEVEL_TEST"] {
+            // A track's own volume on top of Reel's. Playlist: Aurora.mp4 (macOS's player), Two languages.mkv
+            // (Reel's decoder). Output is muted after the level is applied, so the boosts aren't heard.
+            let pl = self.player!, p = Library.shared.playlists[0], av = pl.avBackend, ff = pl.debugFFBackend
+            av.player.isMuted = true; ff.debugMuteOutput()
+            func t(_ n: String) -> UUID { p.tracks.first { $0.displayName == n }!.id }
+            func row(_ n: String) -> String { Library.shared.playlist(p.id)!.tracks.first { $0.displayName == n }.map { "\($0.levelDB.map { TrackLevel.label($0) } ?? "none") · row '\($0.subtitle)…'" } ?? "-" }
+            func avState() -> String { String(format: "player volume %.3f, boost ×%.2f", av.player.volume, av.boost.gain) }
+            func ffState() -> String { String(format: "renderer volume %.3f, boost ×%.2f", ff.debugRendererVolume, ff.debugBoost) }
+            var peaks: [String: Float] = [:]
+            let steps: [(Double, () -> Void)] = [
+                (0.8, { pl.debugSetVolume(1); pl.panelPlay(playlist: p.id, track: t("Aurora")) }),
+                (1.5, { print("1. Aurora at full volume, level 0: \(avState())")
+                        pl.setTrackLevel(-6, tracks: [t("Aurora")], in: p.id) }),
+                (0.5, { print("2. level −6 dB: \(avState()) (expect 0.501) · toast '\(pl.toast.text)' · \(row("Aurora"))")
+                        pl.setTrackLevel(6, tracks: [t("Aurora")], in: p.id); av.boost.peak = 0 }),
+                (2.5, { peaks["av6"] = av.boost.peak
+                        print(String(format: "3. level +6 dB at full volume: %@, tap peak %.3f (0 = the tap isn't running)", avState(), av.boost.peak))
+                        pl.debugSetVolume(0.5) }),
+                (0.5, { print(String(format: "4. Reel at 50%% (gain %.3f), level +6: %@ — no boost needed below full", Loudness.gain(0.5), avState()))
+                        pl.debugSetVolume(1); pl.setTrackLevel(0, tracks: [t("Aurora")], in: p.id)
+                        pl.panelPlay(playlist: p.id, track: t("Two languages")) }),
+                (2.5, { _ = ff.takeDebugPeak() }),
+                (2.0, { peaks["ff0"] = ff.takeDebugPeak()
+                        print(String(format: "5. MKV (Reel's decoder) level 0: %@, peak %.3f", ffState(), peaks["ff0"]!))
+                        pl.setTrackLevel(6, tracks: [t("Two languages")], in: p.id) }),
+                (2.0, { _ = ff.takeDebugPeak() }),        // (what was already buffered goes out first)
+                (2.0, { peaks["ff6"] = ff.takeDebugPeak()
+                        print(String(format: "6. level +6 dB: %@, peak %.3f (×%.2f; +6 dB is ×2, softly limited near full scale) · t=%.1f playing=%@ engine=%@", ffState(), peaks["ff6"]!, peaks["ff6"]! / max(0.0001, peaks["ff0"]!), pl.debugCurrentTime, pl.debugIsPlaying ? "yes" : "no", pl.debugBackendName))
+                        pl.nudgeTrackLevel(1); print("7. ⌥⌘↑: \(row("Two languages")) · toast '\(pl.toast.text)'")
+                        pl.nudgeTrackLevel(-20); pl.nudgeTrackLevel(-20); print("8. far below: clamped to \(row("Two languages"))")
+                        // a .reel export keeps the levels
+                        let url = URL(fileURLWithPath: dir + "/levels.reel")
+                        try? PlaylistFile(Library.shared.playlist(p.id)!).encoded().write(to: url)
+                        let back = PlaylistFile.readNamed(url)?.1 ?? []
+                        print("9. exported and read back:", back.map { "\($0.displayName) \($0.levelDB.map { TrackLevel.label($0) } ?? "0 dB")" })
+                        print("10. limiter: 0.5 ×4 →", { var a: [Float] = [0.5, -0.5, 0.2]; a.withUnsafeMutableBufferPointer { TrackLevel.amplify($0.baseAddress!, count: 3, gain: 4) }; return a.map { String(format: "%.3f", $0) } }())
+                        fflush(stdout); NSApp.terminate(nil) }),
+            ]
+            var at = 0.0
+            for (d, f) in steps { at += d; DispatchQueue.main.asyncAfter(deadline: .now() + at) { f(); fflush(stdout) } }
+        }
+        if ProcessInfo.processInfo.environment["REEL_LOOPAUDIO_TEST"] != nil {
+            // Audio keeps coming across a loop of a short file in Reel's decoder (peak per second). Output muted.
+            let pl = self.player!, p = Library.shared.playlists[0], ff = pl.debugFFBackend
+            ff.debugMuteOutput()
+            pl.panelPlay(playlist: p.id, track: p.tracks.first { $0.displayName == "Two languages" }!.id)
+            for i in 1...16 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i)) {
+                    print(String(format: "%2d s: t=%.1f peak %.3f", i, pl.debugCurrentTime, ff.takeDebugPeak())); fflush(stdout)
+                    if i == 16 { NSApp.terminate(nil) }
+                }
+            }
         }
         if ProcessInfo.processInfo.environment["REEL_LISTPARSE_TEST"] != nil {
             // M3U / PLS lists and stream links, without the network
@@ -1450,6 +1504,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item("Previous Frame    ,", #selector(PlayerController.menuPrevFrame(_:))),
             .separator(),
             item("Mute", #selector(PlayerController.menuMute(_:)), "m", [.command, .shift]),
+            item("Track Louder", #selector(PlayerController.menuTrackLouder(_:)), String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)), [.command, .option]),
+            item("Track Quieter", #selector(PlayerController.menuTrackQuieter(_:)), String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)), [.command, .option]),
+            item("Reset Track Volume", #selector(PlayerController.menuTrackLevelReset(_:))),
         ])
         playbackMenu = main.items.last?.submenu
         menu("View", [

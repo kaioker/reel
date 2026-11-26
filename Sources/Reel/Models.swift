@@ -32,6 +32,9 @@ struct Track: Codable, Identifiable, Equatable {
     var duration: Double?
     /// A live stream (no end, can't seek): found out while it plays, and remembered for the playlist.
     var live: Bool? = nil
+    /// This track's own volume, in dB relative to Reel's volume (levels a loud or quiet track against the rest).
+    var levelDB: Double? = nil
+    var level: Double { levelDB ?? 0 }
     var isLive: Bool { live == true }
 
     /// A link to a stream rather than a file: live (or possibly live), so never opened twice (no second
@@ -112,6 +115,8 @@ struct PlaylistFile: Codable {
         var source: String
         var loop: Bool
         var skip: Bool
+        /// The track's own volume (dB), so a levelled album sounds the same for whoever opens it.
+        var level: Double? = nil
         /// Full details, in Reel's own saved playlists (ignored when importing someone's playlist).
         var track: Track?
     }
@@ -126,7 +131,7 @@ struct PlaylistFile: Codable {
         name = p.name
         if full { id = p.id; self.position = position }
         tracks = p.tracks.map { Entry(name: $0.displayName, source: $0.url?.absoluteString ?? $0.source, loop: $0.loop, skip: $0.isSkipped,
-                                      track: full ? $0 : nil) }
+                                      level: $0.levelDB, track: full ? $0 : nil) }
     }
 
     /// Reads the current format, or the earlier one that stored whole tracks.
@@ -141,6 +146,7 @@ struct PlaylistFile: Codable {
                 guard var t = MediaResolver.track(fromSource: e.source, name: e.name) else { return nil }
                 t.loop = e.loop
                 t.skip = e.skip ? true : nil
+                t.levelDB = e.level.map(TrackLevel.clamp).flatMap { $0 == 0 ? nil : $0 }
                 return t
             })
         }

@@ -32,6 +32,8 @@ protocol PlayerBackend: AnyObject {
     func seek(to seconds: Double)
     func setVolume(_ v: Float)
     func stop()
+    /// Volume as an amplitude gain: Reel's volume times the track's own level. Above 1 (a track turned up while
+    /// Reel is at full) the player amplifies the samples, where it can.
     /// Playback speed (1 = normal). Kept across tracks.
     var rate: Float { get set }
     /// One frame forward (+1) or back (-1); pauses.
@@ -92,6 +94,10 @@ final class AVBackend: NSObject, PlayerBackend {
         if player.timeControlStatus != .paused { player.rate = r }
     }
     private var audioGroup: AVMediaSelectionGroup?
+    /// Amplifying above full volume: a tap on the item's audio, added the first time it's needed.
+    let boost = TrackLevel.TapState()
+    private var audioTrack: AVAssetTrack?
+    private weak var boostedItem: AVPlayerItem?
 
     override init() {
         super.init()
@@ -136,6 +142,14 @@ final class AVBackend: NSObject, PlayerBackend {
         let item = AVPlayerItem(asset: asset)
         item.audioTimePitchAlgorithm = .spectral        // sped-up / slowed-down speech keeps its pitch
         audioGroup = nil
+        audioTrack = nil
+        Task { @MainActor [weak self] in
+            // the audio track, for amplifying (HLS streams list none: they play at most at full volume)
+            let a = try? await asset.loadTracks(withMediaType: .audio)
+            guard let self, self.player.currentItem === item else { return }
+            self.audioTrack = a?.first
+            self.installBoostIfNeeded()
+        }
         Task { @MainActor [weak self] in
             let g = try? await asset.loadMediaSelectionGroup(for: .audible)
             guard let self, self.player.currentItem === item else { return }
@@ -207,7 +221,18 @@ final class AVBackend: NSObject, PlayerBackend {
         player.seek(to: CMTime(seconds: max(0, seconds), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         delegate?.backendTick()
     }
-    func setVolume(_ v: Float) { player.volume = v }
+    func setVolume(_ v: Float) {
+        player.volume = min(1, v)
+        boost.gain = max(1, v)
+        installBoostIfNeeded()
+    }
+
+    private func installBoostIfNeeded() {
+        guard boost.gain > 1.0001, let item = player.currentItem, boostedItem !== item, let track = audioTrack,
+              let mix = TrackLevel.mix(for: track, state: boost) else { return }
+        item.audioMix = mix
+        boostedItem = item
+    }
     func stop() {
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -244,6 +269,9 @@ final class HTMLVideoBackend: NSObject, PlayerBackend, WKScriptMessageHandler {
     private(set) var duration: Double = 0
     private var playing = false
     private var volume: Float = 1
+    /// Local files can be amplified above full volume through Web Audio (linked videos can't: other sites' media
+    /// goes silent through Web Audio).
+    private var isLocal = false
     let hasVideo = true
     var isPlaying: Bool { playing }
     var rate: Float = 1 { didSet { js("v.playbackRate=\(rate); v.defaultPlaybackRate=\(rate)") } }
@@ -263,6 +291,7 @@ final class HTMLVideoBackend: NSObject, PlayerBackend, WKScriptMessageHandler {
     func load(_ track: Track) {
         guard let url = track.url else { delegate?.backendFailed("Bad URL"); return }
         currentTime = 0; duration = track.duration ?? 0; playing = false
+        isLocal = url.isFileURL
         let src = url.absoluteString.replacingOccurrences(of: "\"", with: "%22")
         let html = """
         <!doctype html><html><head><style>html,body{margin:0;height:100%;background:#000;overflow:hidden}
@@ -271,7 +300,15 @@ final class HTMLVideoBackend: NSObject, PlayerBackend, WKScriptMessageHandler {
         <script>
         const v=document.getElementById('v');
         function post(o){ try{ webkit.messageHandlers.reel.postMessage(o) }catch(e){} }
-        v.volume=\(volume); v.defaultPlaybackRate=\(rate); v.playbackRate=\(rate);
+        v.volume=\(min(1, volume)); v.defaultPlaybackRate=\(rate); v.playbackRate=\(rate);
+        let reelCtx=null, reelGain=null;
+        function reelBoost(g){
+          if(!reelCtx){ if(g<=1.0001) return;
+            try{ reelCtx=new AudioContext(); const s=reelCtx.createMediaElementSource(v); reelGain=reelCtx.createGain();
+                 s.connect(reelGain); reelGain.connect(reelCtx.destination); }catch(e){ reelCtx=null; return; } }
+          reelGain.gain.value=g;
+        }
+        \(url.isFileURL ? "reelBoost(\(max(1, volume)));" : "")
         v.addEventListener('loadedmetadata',()=>post({type:'size', w:v.videoWidth, h:v.videoHeight}));
         v.addEventListener('ended',()=>post({type:'ended'}));
         v.addEventListener('error',()=>post({type:'error', code:(v.error&&v.error.code)||0}));
@@ -295,7 +332,10 @@ final class HTMLVideoBackend: NSObject, PlayerBackend, WKScriptMessageHandler {
     func play() { js("v.play()") }
     func pause() { js("v.pause()") }
     func seek(to seconds: Double) { currentTime = max(0, seconds); js("v.currentTime=\(max(0, seconds))"); delegate?.backendTick() }
-    func setVolume(_ v: Float) { volume = v; js("v.volume=\(v)") }
+    func setVolume(_ v: Float) {
+        volume = v
+        js("v.volume=\(min(1, v))" + (isLocal ? "; reelBoost(\(max(1, v)))" : ""))
+    }
     func stop() { web.loadHTMLString("", baseURL: nil); playing = false }
 
     func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
@@ -393,7 +433,8 @@ final class YouTubeBackend: NSObject, PlayerBackend, WKScriptMessageHandler, WKN
         delegate?.backendTick()
     }
     /// YouTube takes whole numbers 0…100, so keep quiet-but-not-muted levels at 1 rather than 0.
-    private static func ytVolume(_ v: Float) -> Int { v <= 0 ? 0 : max(1, Int((v * 100).rounded())) }
+    /// YouTube's player goes to 100 and no further (a track level above Reel's full volume can't add more).
+    private static func ytVolume(_ v: Float) -> Int { v <= 0 ? 0 : max(1, min(100, Int((v * 100).rounded()))) }
     func setVolume(_ v: Float) { volume = v; js("reelVolume(\(Self.ytVolume(v)))") }
     func stop() { js("reelStop()") }
 

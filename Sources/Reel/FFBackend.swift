@@ -120,7 +120,17 @@ final class FFBackend: NSObject, PlayerBackend {
         delegate?.backendTick()
     }
 
-    func setVolume(_ v: Float) { volume = v; audio.volume = v }
+    func setVolume(_ v: Float) { volume = v; audio.volume = min(1, v); boost = max(1, v) }
+    /// Above full volume: decoded samples are amplified (read on the decode thread; takes effect within the
+    /// second or so already buffered).
+    fileprivate var boost: Float = 1
+    /// Loudest sample enqueued since the last read (tests).
+    fileprivate(set) var debugPeak: Float = 0
+    func takeDebugPeak() -> Float { defer { debugPeak = 0 }; return debugPeak }
+    /// Tests: silence the output (after the level is applied), so a boost test isn't heard.
+    func debugMuteOutput() { audio.isMuted = true }
+    var debugRendererVolume: Float { audio.volume }
+    var debugBoost: Float { boost }
 
     func step(frames: Int) {
         guard !isLive else { return }
@@ -243,6 +253,9 @@ final class SampleBufferView: NSView {
 }
 
 // MARK: - Decode session (one per file; runs on its own thread)
+
+/// Tests and REEL_DEBUG: note the loudest sample going out (checks a track's level really amplifies).
+private let measurePeak = debugLog || ["REEL_LEVEL_TEST", "REEL_LOOPAUDIO_TEST"].contains { ProcessInfo.processInfo.environment[$0] != nil }
 
 /// Lets FFmpeg's blocking network calls give up: when the session is stopped, or a connection goes quiet.
 private func ffInterrupt(_ opaque: UnsafeMutableRawPointer?) -> Int32 {
@@ -732,6 +745,15 @@ private final class FFSession {
             }
         }
         guard produced > 0 else { return }
+        let g = owner?.boost ?? 1
+        out.withUnsafeMutableBufferPointer { b in
+            TrackLevel.amplify(b.baseAddress!, count: Int(produced) * 2, gain: g)
+            if measurePeak {
+                var m: Float = 0
+                vDSP_maxmgv(b.baseAddress!, 1, &m, vDSP_Length(Int(produced) * 2))
+                if let o = owner, m > o.debugPeak { DispatchQueue.main.async { if m > o.debugPeak { o.debugPeak = m } } }
+            }
+        }
 
         var asbd = AudioStreamBasicDescription(mSampleRate: Double(rate), mFormatID: kAudioFormatLinearPCM,
                                                mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
