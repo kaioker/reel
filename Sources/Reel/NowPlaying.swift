@@ -50,7 +50,7 @@ final class NowPlaying {
     }
 
     /// Call when the track, play state or position changes. Cheap to call often (throttled unless `force`).
-    func update(title: String?, album: String?, duration: Double, elapsed: Double, playing: Bool, force: Bool = false) {
+    func update(title: String?, album: String?, duration: Double, elapsed: Double, playing: Bool, live: Bool = false, force: Bool = false) {
         if !force && Date().timeIntervalSince(lastPush) < 1 { return }
         lastPush = Date()
         guard let title else {
@@ -67,7 +67,8 @@ final class NowPlaying {
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.video.rawValue,
         ]
         if let album { d[MPMediaItemPropertyAlbumTitle] = album }
-        if duration > 0 { d[MPMediaItemPropertyPlaybackDuration] = duration }
+        if duration > 0 && !live { d[MPMediaItemPropertyPlaybackDuration] = duration }
+        if live { d[MPNowPlayingInfoPropertyIsLiveStream] = true }
         if let artwork { d[MPMediaItemPropertyArtwork] = artwork }
         info.nowPlayingInfo = d
         info.playbackState = playing ? .playing : .paused

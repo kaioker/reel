@@ -43,7 +43,9 @@ Most players want to be the main window. Reel is built to sit in a corner while 
 | Source | Notes |
 |---|---|
 | **Files** | Video and audio files, whole folders. Audio-only tracks show a waveform. |
-| **Links** | Direct video links and HLS streams |
+| **Links** | Direct video and audio links |
+| **Live streams** | HLS (`.m3u8`), DASH (`.mpd`), RTSP cameras, RTMP, UDP and RTP multicast, MPEG-TS and MJPEG over HTTP, internet radio. A red **LIVE** tag shows while one plays; pausing and playing again rejoins it live, and a dropped connection reconnects by itself. |
+| **Channel and radio lists** | `.m3u` / `.m3u8` lists (IPTV channel lists, Winamp-style playlists) and `.pls` radio lists, as files or links: each entry becomes a track, named from the list |
 | **YouTube** | Videos and whole playlists (Reel asks: play without saving, save as a new playlist, add the videos to the one you're viewing, or only this video) |
 | **Bilibili** | Videos |
 | **WebM, including transparent** | See-through video floats over your desktop, with glass behind it only while the playlist or window buttons show |
@@ -61,7 +63,8 @@ Most players want to be the main window. Reel is built to sit in a corner while 
 
 Drop something on the video to play it right away, or on the playlist to add it at that spot. Dragging over the
 video opens the playlist so you can. ⌘V works the same way, going wherever the pointer is. Anything playing that isn't
-in a playlist gets an **Add** button, so you can keep it.
+in a playlist gets an **Add** button, so you can keep it. File → Open Location… (⇧⌘O) takes a typed or pasted link,
+such as a camera's `rtsp://` address.
 
 Reel can also be your **default video and music player** (Reel → Default Video Player / Default Music Player), so
 double-clicking a file in Finder opens it in Reel.
@@ -104,6 +107,7 @@ double-clicking a file in Finder opens it in Reel.
 | Right-click | Quick menu. The video and a playlist track share the same track icons (play, loop, shuffle, skip, rename, Finder, AirPlay); then the video adds speed / audio / subtitles, on top, playlist, add, paste, full screen |
 | Two-finger swipe ← → on the playlist | Slide between the playlist and all playlists |
 | ⌘V | Paste links or files where the pointer is: into the playlist, or onto the video to play now |
+| ⇧⌘O | Open Location: type or paste a link to a video or stream |
 | ⌘F | Search the playlist |
 | ⌘P · ⌘T · ⌘0 | Playlist · always on top · actual size |
 | Headset, AirPods, ⏯ ⏭ ⏮ keys | Play / pause, next and previous track; Reel shows in Control Center's Now Playing |

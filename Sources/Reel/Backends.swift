@@ -13,6 +13,8 @@ protocol BackendDelegate: AnyObject {
     func backendNeedsWebFallback()
     /// The audio tracks / captions on offer changed (they're found a moment after loading).
     func backendTracksChanged()
+    /// A passing state worth showing over the picture ("Reconnecting…"); "" clears it.
+    func backendNotice(_ text: String)
 }
 
 protocol PlayerBackend: AnyObject {
@@ -38,9 +40,12 @@ protocol PlayerBackend: AnyObject {
     var audioTrackNames: [String] { get }
     var selectedAudioTrack: Int { get }
     func selectAudioTrack(_ i: Int)
+    /// A live stream: no end and no timeline to seek in. Pausing it and playing again rejoins it live.
+    var isLive: Bool { get }
 }
 
 extension PlayerBackend {
+    var isLive: Bool { false }
     var audioTrackNames: [String] { [] }
     var selectedAudioTrack: Int { 0 }
     func selectAudioTrack(_ i: Int) {}
@@ -79,8 +84,12 @@ final class AVBackend: NSObject, PlayerBackend {
     private var rateObs: NSKeyValueObservation?
     private var endObs: NSObjectProtocol?
     private(set) var hasVideo = true
-    var rate: Float = 1 {
-        didSet { player.defaultRate = rate; if player.timeControlStatus != .paused { player.rate = rate } }
+    var rate: Float = 1 { didSet { applyRate() } }
+    /// A live stream plays at normal speed: it can't run ahead of what's been broadcast.
+    private func applyRate() {
+        let r = isLive ? 1 : rate
+        player.defaultRate = r
+        if player.timeControlStatus != .paused { player.rate = r }
     }
     private var audioGroup: AVMediaSelectionGroup?
 
@@ -102,6 +111,11 @@ final class AVBackend: NSObject, PlayerBackend {
         return d
     }
     var isPlaying: Bool { player.timeControlStatus != .paused }
+    /// Live HLS and internet radio: macOS reports no end (an indefinite duration).
+    var isLive: Bool {
+        guard let item = player.currentItem, item.status == .readyToPlay else { return false }
+        return item.duration.isIndefinite
+    }
 
     func load(_ track: Track) {
         guard let url = track.url else { delegate?.backendFailed("Bad URL"); return }
@@ -135,6 +149,7 @@ final class AVBackend: NSObject, PlayerBackend {
                     if item.status == .failed {
                         self.delegate?.backendFailed(item.error?.localizedDescription ?? "Can't play this file")
                     } else if item.status == .readyToPlay {
+                        self.applyRate()                 // (live streams stay at normal speed)
                         self.delegate?.backendTick()   // lets a paused start be positioned (no ticks while paused)
                     }
                 }
@@ -179,9 +194,16 @@ final class AVBackend: NSObject, PlayerBackend {
         if autoplay { player.play() } else { player.pause() }
     }
 
-    func play() { player.play() }
+    func play() {
+        // a paused live stream rejoins at the live edge, like the in-app decoder does
+        if isLive, player.timeControlStatus == .paused, let r = player.currentItem?.seekableTimeRanges.last?.timeRangeValue {
+            player.seek(to: CMTimeRangeGetEnd(r))
+        }
+        player.play()
+    }
     func pause() { player.pause() }
     func seek(to seconds: Double) {
+        guard !isLive else { return }
         player.seek(to: CMTime(seconds: max(0, seconds), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         delegate?.backendTick()
     }

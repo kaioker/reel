@@ -65,6 +65,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
       <key>LSHandlerRank</key><string>Alternate</string>
       <key>LSItemContentTypes</key><array>
         <string>public.movie</string><string>public.audio</string><string>public.audiovisual-content</string><string>public.folder</string>
+        <string>public.m3u-playlist</string><string>public.pls-playlist</string>
       </array>
     </dict>
     <dict>

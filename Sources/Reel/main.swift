@@ -53,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let u = ProcessInfo.processInfo.environment["REEL_PLAY"] {
             if u == "first" { player.nextTrack() } else { player.panel.add(text: u, at: nil, playFirst: true) }
         }
-        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST", "REEL_REELFILE_TEST", "REEL_ASK_TEST", "REEL_EXTRAS_TEST", "REEL_SUBPREF_TEST", "REEL_HW_TEST", "REEL_MENUS_TEST", "REEL_DEMO"].contains { ProcessInfo.processInfo.environment[$0] != nil }
+        let testing = ["REEL_DEBUG", "REEL_PANEL_TEST", "REEL_GESTURE_TEST", "REEL_DOT_TEST", "REEL_RESIZE_TEST", "REEL_CLICK_TEST", "REEL_HELP_TEST", "REEL_RCLICK_TEST", "REEL_FOLLOW_TEST", "REEL_SKIP_TEST", "REEL_FLASH_TEST", "REEL_IO_TEST", "REEL_FIRSTCLICK_TEST", "REEL_FIT_TEST", "REEL_ABOUT_TEST", "REEL_DISMISS_TEST", "REEL_DROP_TEST", "REEL_VOLUME_TEST", "REEL_LOOSE_TEST", "REEL_PLAYLISTS_TEST", "REEL_REELFILE_TEST", "REEL_ASK_TEST", "REEL_EXTRAS_TEST", "REEL_SUBPREF_TEST", "REEL_HW_TEST", "REEL_MENUS_TEST", "REEL_LIVE_TEST", "REEL_LISTPARSE_TEST", "REEL_DEMO"].contains { ProcessInfo.processInfo.environment[$0] != nil }
         if !testing { NSApp.activate(ignoringOtherApps: true) }
         if let dir = ProcessInfo.processInfo.environment["REEL_DOT_TEST"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
@@ -741,6 +741,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             fflush(stdout); NSApp.terminate(nil)
         }
+        if ProcessInfo.processInfo.environment["REEL_LISTPARSE_TEST"] != nil {
+            // M3U / PLS lists and stream links, without the network
+            func show(_ label: String, _ ts: [Track]) {
+                print(label); ts.forEach { print("   \($0.kind) \($0.isLive ? "live " : "")'\($0.displayName)' \($0.duration.map { "\(Int($0))s " } ?? "")\($0.source)") }
+            }
+            let base = URL(fileURLWithPath: "/Users/test/Lists/radio.m3u")
+            show("extended M3U (relative, Windows and absolute paths, quoted comma in attributes, tvg-name fallback):",
+                 MediaResolver.tracks(forList: "\u{FEFF}#EXTM3U\n#EXTINF:215,Artist - Song\nMusic/song one.mp3\n#EXTINF:-1 group-title=\"News, World\" tvg-name=\"Channel 7\",\nhttp://tv.example/7.m3u8\n#EXTINF:-1,Cam\nrtsp://cam.local/stream1\nVideos\\clip.mp4\n/Volumes/Media/film.mkv\n#EXTVLCOPT:network-caching=1000\nudp://@239.1.1.1:5000\n", base: base, hlsTitle: "-"))
+            show("PLS (internet radio):", MediaResolver.tracks(forList: "[playlist]\nNumberOfEntries=2\nFile1=http://radio.example:8000/stream\nTitle1=Example FM\nLength1=-1\nFile2=http://radio.example:8000/aac\nTitle2=Example FM (AAC)\nVersion=2\n", base: URL(string: "http://radio.example/listen.pls")!, hlsTitle: "-"))
+            show("an HLS playlist is one stream:", MediaResolver.tracks(forList: "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nseg0.ts\n", base: URL(string: "https://cdn.example/live/index.m3u8")!, hlsTitle: "Cdn live"))
+            print("links accepted:", ["rtsp://nvr:554/ch1", "udp://@:1234", "rtmp://live.example/app/key", "rtsp://", "ftp://x.example/a.mp4", "notalink"].map { "\($0) → \(MediaResolver.normalizedURL($0) != nil)" })
+            print("titles:", ["https://cdn.example/live/hls/index.m3u8", "https://x.example/news/playlist.m3u8", "udp://@:1234", "rtsp://cam.local/Streaming/Channels/101"].map { MediaResolver.title(for: URL(string: $0)!) })
+            NSApp.terminate(nil)
+        }
+        if let dir = ProcessInfo.processInfo.environment["REEL_LIVE_TEST"] {
+            // Live streams. REEL_LIVE_URLS = "name=link|name=link…" (opened like Open Location, one after another);
+            // REEL_LIVE_SECONDS per stream (default 8). Names starting "pause" also pause 3 s and play again
+            // (rejoins live); every stream is asked to seek (refused when live). Window screenshots go to `dir`.
+            let pl = self.player!, w = pl.window
+            let streams = (ProcessInfo.processInfo.environment["REEL_LIVE_URLS"] ?? "").components(separatedBy: "|").compactMap { e -> (String, String)? in
+                let parts = e.split(separator: "=", maxSplits: 1).map(String.init)
+                return parts.count == 2 ? (parts[0], parts[1]) : nil
+            }
+            let per = Double(ProcessInfo.processInfo.environment["REEL_LIVE_SECONDS"] ?? "") ?? 8
+            func snap(_ name: String) {
+                let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+                p.arguments = ["-x", "-o", "-l\(w.windowNumber)", dir + "/" + name + ".png"]; try? p.run(); p.waitUntilExit()
+            }
+            func state() -> String {
+                let t = pl.currentTrack
+                let loose = pl.looseInfo.map { " '\($0.title)' (1 of \($0.count))" } ?? ""
+                return "\(loose) audioOnly=\(pl.audioOnly) engine=\(pl.debugBackendName) live=\(pl.debugIsLive) tag=\(pl.debugLiveTag) playing=\(pl.debugIsPlaying) t=\(String(format: "%.1f", pl.debugCurrentTime)) size=\(Int(pl.debugVideoSize.width))x\(Int(pl.debugVideoSize.height)) row='\(t?.subtitle ?? "-")' message='\(pl.debugMessage.replacingOccurrences(of: "\n", with: " "))'"
+            }
+            var steps: [(Double, () -> Void)] = []
+            for (name, link) in streams {
+                var t0 = 0.0
+                steps.append((0.5, { print("== \(name): \(link)"); pl.playLoose(text: link) }))
+                steps.append((per - 3, { print("   after \(Int(per - 3)) s: \(state())"); t0 = pl.debugCurrentTime }))
+                steps.append((3, { print(String(format: "   3 s later: advanced %.1f s · %@", pl.debugCurrentTime - t0, state())); snap(name)
+                                   let before = pl.debugCurrentTime; pl.skip(30)
+                                   print(String(format: "   asked to skip 30 s → moved %.1f s", pl.debugCurrentTime - before)) }))
+                if name.hasPrefix("pause") {
+                    steps.append((0.5, { pl.togglePlay(); print("   paused: \(state())") }))
+                    steps.append((3, { t0 = pl.debugCurrentTime; pl.togglePlay(); print("   play again (toast '\(pl.toast.text)')") }))
+                    steps.append((8, { print(String(format: "   8 s after playing again: clock jumped %.1f s (rejoined live if ≈ 11) · %@", pl.debugCurrentTime - t0, state())) }))
+                }
+            }
+            steps.insert((0.3, { print("window on: \(w.screen?.localizedName ?? "?")") }), at: 0)
+            steps.append((0.5, { fflush(stdout); NSApp.terminate(nil) }))
+            var t = 0.0
+            for (d, f) in steps { t += d; DispatchQueue.main.asyncAfter(deadline: .now() + t) { f(); fflush(stdout) } }
+        }
         if let dir = ProcessInfo.processInfo.environment["REEL_LOOSE_TEST"] {
             // Drop on the video plays loose; the playlist's Add strip keeps it; ⌘V follows the pointer.
             // REEL_DROP_FILES = three media files (a:b:c). Window screenshots go to `dir`.
@@ -1365,6 +1417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         ])
         menu("File", [
             item("Open…", #selector(PlayerController.openDocument(_:)), "o"),
+            item("Open Location…", #selector(PlayerController.openLocation(_:)), "o", [.command, .shift]),
             item("New Playlist", #selector(PlayerController.newPlaylist(_:)), "n"),
             .separator(),
             item("Close Window", #selector(NSWindow.performClose(_:)), "w"),
@@ -1442,7 +1495,8 @@ if #available(macOS 14.0, *) { VTRegisterSupplementalVideoDecoderIfAvailable(kCM
 
 // A test run (REEL_…_TEST) that never finishes quits by itself instead of sitting open.
 if ProcessInfo.processInfo.environment.keys.contains(where: { $0.hasPrefix("REEL_") && $0.hasSuffix("_TEST") }) {
-    DispatchQueue.main.asyncAfter(deadline: .now() + 90) { print("test timed out after 90 s"); fflush(stdout); exit(3) }
+    let limit = Double(ProcessInfo.processInfo.environment["REEL_TEST_TIMEOUT"] ?? "") ?? 90   // longer runs set their own
+    DispatchQueue.main.asyncAfter(deadline: .now() + limit) { print("test timed out after \(Int(limit)) s"); fflush(stdout); exit(3) }
 }
 // Tooltips show after a short pause rather than macOS's default (about a second and a half).
 UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 350])

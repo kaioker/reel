@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 enum TrackKind: String, Codable {
     case local      // file on disk
-    case remote     // direct media URL (mp4, m3u8, mp3 ...)
+    case remote     // direct media URL (mp4, m3u8, mp3 ...) or a stream (rtsp://, rtmp://, udp:// ...)
     case youtube    // YouTube video id
     case bilibili   // "BVxxxx|cid|page" (or "av123|cid|page")
 }
@@ -30,6 +30,23 @@ struct Track: Codable, Identifiable, Equatable {
     /// Next / previous / auto-advance only land on these.
     var isPlayableInSequence: Bool { !isSkipped && isAvailable }
     var duration: Double?
+    /// A live stream (no end, can't seek): found out while it plays, and remembered for the playlist.
+    var live: Bool? = nil
+    var isLive: Bool { live == true }
+
+    /// A link to a stream rather than a file: live (or possibly live), so never opened twice (no second
+    /// connection to look for subtitles), converted or resumed.
+    var isStream: Bool {
+        guard kind == .remote, let u = url else { return false }
+        return isLive || needsInAppDecoder || u.pathExtension.lowercased() == "m3u8"
+    }
+    /// Played by Reel's own decoder straight away: protocols macOS's player doesn't speak (RTSP, RTMP, UDP,
+    /// RTP), DASH, raw MPEG-TS over HTTP (broadcast / IPTV) and MJPEG camera feeds. HLS goes to macOS's
+    /// player first (hardware decoding, AirPlay).
+    var needsInAppDecoder: Bool {
+        guard kind == .remote, let u = url else { return false }
+        return MediaResolver.isStreamScheme(u) || ["mpd", "ts", "m2ts", "mts", "mjpg", "mjpeg"].contains(u.pathExtension.lowercased())
+    }
 
     /// True for WebM files/URLs (AVFoundation can't play these; WebKit or an ffmpeg conversion can).
     var isWebM: Bool {
@@ -47,7 +64,12 @@ struct Track: Codable, Identifiable, Equatable {
         case .local: return "Local file"
         case .youtube: return "YouTube"
         case .bilibili: return "Bilibili"
-        case .remote: return URL(string: source)?.host ?? "URL"
+        case .remote:
+            let u = URL(string: source)
+            // (udp://@:1234 listens on a port rather than naming a host)
+            let host = u?.host.flatMap { $0.isEmpty ? nil : $0 } ?? u?.port.map { "port \($0)" } ?? "URL"
+            let proto = u.flatMap { MediaResolver.isStreamScheme($0) ? $0.scheme?.uppercased() : nil }
+            return [isLive ? "● Live" : nil, proto, host].compactMap { $0 }.joined(separator: " · ")
         }
     }
 

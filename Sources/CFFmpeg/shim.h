@@ -13,6 +13,8 @@
 // Macros Swift can't import directly.
 static inline int reel_err_again(void) { return AVERROR(EAGAIN); }
 static inline int reel_err_eof(void) { return AVERROR_EOF; }
+/* a blocking call gave up because the interrupt callback asked it to (stopped, or timed out) */
+static inline int reel_err_exit(void) { return AVERROR_EXIT; }
 static inline int64_t reel_nopts(void) { return AV_NOPTS_VALUE; }
 static inline int reel_time_base(void) { return AV_TIME_BASE; }
 

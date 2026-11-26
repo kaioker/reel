@@ -54,7 +54,10 @@ final class PlaybackExtras: NSObject, NSMenuDelegate {
         player.backend?.rate = speed
         player.debugNowPlaying.speed = Double(speed)
         player.updateNowPlaying(force: true)
-        player.toast.show(speed == 1 ? "Normal speed" : "Speed \(Self.label(speed))", symbol: "gauge.with.dots.needle.50percent", sticky: false)
+        let live = player.backend?.isLive == true && speed != 1
+        player.toast.show(live ? "Speed \(Self.label(speed)) · live streams play at normal speed"
+                               : speed == 1 ? "Normal speed" : "Speed \(Self.label(speed))",
+                          symbol: "gauge.with.dots.needle.50percent", sticky: false)
     }
     func faster() { setSpeed(Self.speeds.first { $0 > speed + 0.001 } ?? speed) }
     func slower() { setSpeed(Self.speeds.last { $0 < speed - 0.001 } ?? speed) }
@@ -182,6 +185,9 @@ final class PlaybackExtras: NSObject, NSMenuDelegate {
             for f in files { subtitleChoices.append((Self.fileName(f, base: base), .file(f))) }
         }
         restorePreference()
+        // Subtitles inside the file are listed by opening it a second time — never for a stream: that would be a
+        // second connection (cameras and single-viewer servers allow one), or a clash over a UDP port.
+        guard !t.isStream else { return }
         let token = loadToken
         DispatchQueue.global(qos: .utility).async {
             let streams = SubtitleReader.streams(in: url)

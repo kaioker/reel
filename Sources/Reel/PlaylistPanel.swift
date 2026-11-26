@@ -542,7 +542,7 @@ final class PlaylistPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, N
     func fix(trackID: UUID) {
         guard let t = tracks.first(where: { $0.id == trackID }), let window else { return }
         let open = NSOpenPanel()
-        open.allowedContentTypes = [.audiovisualContent]
+        open.allowedContentTypes = [.audiovisualContent, .playlist]   // .playlist: M3U / PLS lists
         open.message = "Where is “\(t.displayName)”?" + (t.url.map { "  (was \($0.lastPathComponent.removingPercentEncoding ?? $0.lastPathComponent))" } ?? "")
         open.prompt = "Use This File"
         if let old = t.url?.deletingLastPathComponent(), FileManager.default.fileExists(atPath: old.path) { open.directoryURL = old }

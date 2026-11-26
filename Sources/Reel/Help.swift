@@ -67,7 +67,10 @@ final class HelpWindow: NSObject {
             ("Opened from Finder", "Plays once, outside your playlists (no loop)"),
             ("⌘V", "Pastes where the pointer is: a spot in the playlist adds it there, the video plays it now, elsewhere adds it to the end"),
             ("+  or  ⌘O", "Choose files"),
-            ("Works with", "Video & audio files, direct links, HLS streams, YouTube videos and playlists, Bilibili"),
+            ("⇧⌘O", "Open Location: type or paste a link — a video, or a stream such as a camera's rtsp:// address"),
+            ("Works with", "Video & audio files, direct links, YouTube videos and playlists, Bilibili, live streams, .m3u / .pls lists"),
+            ("Live streams", "HLS (.m3u8), DASH (.mpd), RTSP, RTMP, UDP / RTP, MPEG-TS and MJPEG over HTTP, internet radio. LIVE shows by the title; pause and play again to rejoin live; a dropped connection reconnects by itself"),
+            ("Channel lists", ".m3u / .m3u8 / .pls lists (IPTV channels, radio stations) as files or links: each entry becomes a track, named from the list"),
             ("WebM", "Plays too; transparent WebM is see-through, with glass behind it while the playlist or window buttons show"),
             ("Unusual formats", "Videos macOS can't decode play through Reel's built-in FFmpeg decoder"),
             ("Audio only", "Shows the waveform"),
@@ -237,7 +240,7 @@ final class AboutWindow: NSObject {
                     size: 13, alpha: 0.8), height: 36, gap: 16)
 
         // What it plays
-        let chips = ["Video & audio files", "YouTube", "Bilibili", "WebM", "HLS", "Direct links"].map(chip)
+        let chips = ["Video & audio files", "YouTube", "Bilibili", "WebM", "Live streams", "Direct links"].map(chip)
         var rows: [[NSView]] = [[]]
         var rowW: CGFloat = 0
         for c in chips {

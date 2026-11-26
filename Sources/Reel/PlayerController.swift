@@ -365,6 +365,10 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     var debugVideoArea: NSView { videoArea }
     var debugTransparent: Bool { videoIsTransparent }
     var debugBackendName: String { backend.map { String(describing: type(of: $0)) } ?? "-" }
+    var debugMessage: String { message.stringValue }
+    var debugLiveTag: Bool { titleOverlay.live }
+    var debugIsLive: Bool { backend?.isLive ?? false }
+    var debugVideoSize: CGSize { nativeSize ?? .zero }
     var debugAudio: String { (backend as? FFBackend)?.debugAudioRendering ?? "-" }
     /// What the audio player is actually set to (AVPlayer gain), for REEL_VOLUME_TEST.
     var debugPlayerGain: Float { (backend as? AVBackend)?.player.volume ?? -1 }
@@ -803,6 +807,39 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         root.needsLayout = true
     }
 
+    func backendNotice(_ text: String) { showMessage(text) }
+
+    // MARK: Live streams
+
+    /// The LIVE tag, and what the playlist remembers about the track (shown in its row as "● Live").
+    private func syncLive() {
+        let live = backend?.isLive ?? false
+        titleOverlay.live = live
+        guard let t = currentTrack, let b = backend else { return }
+        if live && !t.isLive {
+            mutateCurrentTrack { $0.live = true; $0.duration = nil }
+        } else if !live && t.isLive && b.duration > 0 {
+            mutateCurrentTrack { $0.live = nil }          // it turned out to have an end after all
+        }
+    }
+
+    /// Changes what's playing, in its playlist or among the loose items (which aren't in the library).
+    private func mutateCurrentTrack(_ body: (inout Track) -> Void) {
+        guard let c = current else { return }
+        if c.playlist == transientID {
+            if let i = transient.tracks.firstIndex(where: { $0.id == c.track }) { body(&transient.tracks[i]); panel.refreshNowPlaying() }
+        } else {
+            Library.shared.mutateTrack(c.track, body)
+        }
+    }
+
+    /// Seeking a live stream: say so instead.
+    private func refuseLiveSeek() {
+        overlay.axis = .horizontal; overlay.fraction = 1; overlay.text = "Live"
+        overlay.show()
+        scheduleOverlayHide()
+    }
+
     // MARK: Playback
 
     // MARK: Headset buttons / media keys / Control Center (Now Playing)
@@ -821,7 +858,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     func updateNowPlaying(force: Bool = false) {
         let album = current.flatMap { list($0.playlist)?.name }
         nowPlaying.update(title: currentTrack?.displayName, album: album, duration: backend?.duration ?? 0,
-                          elapsed: backend?.currentTime ?? 0, playing: backend?.isPlaying ?? false, force: force)
+                          elapsed: backend?.currentTime ?? 0, playing: backend?.isPlaying ?? false,
+                          live: backend?.isLive ?? false, force: force)
     }
     var debugNowPlaying: NowPlaying { nowPlaying }
 
@@ -875,6 +913,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         showMessage("")
         nativeSize = nil
         audioOnly = false
+        waveformPending = false
         setTransparent(false)
 
         switch track.kind {
@@ -893,6 +932,12 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
                 self.showMessage("")
                 self.avBackend.loadURL(url, headers: ["User-Agent": MediaResolver.browserUA, "Referer": "https://www.bilibili.com/"])
             }
+        case .remote where track.needsInAppDecoder:
+            // RTSP, RTMP, UDP, RTP and DASH: macOS's player doesn't speak these, Reel's own decoder does
+            guard let url = track.url else { return }
+            fallbackStage = 2          // nothing further to fall back to
+            use(ffBackend)
+            ffBackend.start(url: url)
         case .local where track.isWebM, .remote where track.isWebM:
             guard let url = track.url else { return }
             backend?.stop()
@@ -1000,12 +1045,21 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         waveform.samples = []
         waveform.progress = 0
         refreshBackdrop()
+        // drawn once the player knows the length (backendTick): a live stream (internet radio) has none,
+        // and reading one a second time would mean a second connection
+        waveformPending = !t.isStream
+    }
+
+    private var waveformPending = false
+    private func loadWaveformIfReady(_ b: PlayerBackend) {
+        guard waveformPending, audioOnly else { return }
+        if b.isLive { waveformPending = false; return }
+        guard b.duration > 0, let url = currentTrack?.url else { return }
+        waveformPending = false
         let token = loadToken
-        if let url = t.url {
-            Task { @MainActor in
-                let s = await Task.detached(priority: .userInitiated) { await WaveformView.load(url) }.value
-                if token == self.loadToken { self.waveform.samples = s }
-            }
+        Task { @MainActor in
+            let s = await Task.detached(priority: .userInitiated) { await WaveformView.load(url) }.value
+            if token == self.loadToken { self.waveform.samples = s }
         }
     }
 
@@ -1059,12 +1113,14 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         let willPlay = !b.isPlaying
         willPlay ? b.play() : b.pause()
         flash.flash(playing: willPlay)
+        if willPlay && b.isLive { toast.show("Back to live", symbol: "dot.radiowaves.left.and.right", sticky: false) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.updateHUDState() }
     }
 
     func skip(_ s: Double) {
         defer { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { self.updateNowPlaying(force: true) } }
         guard let b = backend else { return }
+        if b.isLive { refuseLiveSeek(); return }
         var t = b.currentTime + s
         if b.duration > 0 { t = min(t, max(0, b.duration - 0.25)) }
         b.seek(to: max(0, t))
@@ -1147,6 +1203,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     private var lastLog = 0.0
     func backendTick() {
         guard let b = backend else { return }
+        if b.isLive != titleOverlay.live { syncLive() }
+        loadWaveformIfReady(b)
         updateNowPlaying()
         if Date().timeIntervalSince(lastResumeSave) > 5 { lastResumeSave = Date(); saveResumePoint() }
         if let s = pendingSeek, b.duration > 0 {
@@ -1158,13 +1216,14 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
             lastLog = Date().timeIntervalSince1970
             print("tick t=\(String(format: "%.1f", b.currentTime)) d=\(String(format: "%.1f", b.duration)) playing=\(b.isPlaying) frame=\(window.frame) panel=\(panelOpen)"); fflush(stdout)
         }
-        if let t = currentTrack, b.duration > 0, abs((t.duration ?? 0) - b.duration) > 1.5 {
+        if let t = currentTrack, b.duration > 0, !b.isLive, abs((t.duration ?? 0) - b.duration) > 1.5 {
             let d = b.duration
-            Library.shared.mutateTrack(t.id) { $0.duration = d }
+            mutateCurrentTrack { $0.duration = d }
         }
     }
 
     func backendStateChanged() {
+        syncLive()
         updateNowPlaying(force: true)
         updateHUDState()
     }
@@ -1197,7 +1256,8 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
                 backendNeedsWebFallback()
                 return
             }
-            if fallbackStage <= 1, MediaResolver.findFFmpeg() != nil, let url = t.url {
+            // (never a stream: converting one would never finish)
+            if fallbackStage <= 1, !t.isStream, !(backend?.isLive ?? false), MediaResolver.findFFmpeg() != nil, let url = t.url {
                 fallbackStage = 2
                 let token = loadToken
                 use(avBackend)
@@ -1217,7 +1277,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
                 return
             }
         }
-        showMessage("Can't play this:\n" + msg)
+        showMessage((currentTrack?.isStream == true ? "Can't play this stream:\n" : "Can't play this:\n") + msg)
         // Move on after a moment, unless you've already picked something else.
         let w = DispatchWorkItem { [weak self] in
             guard let self, let now = self.current, now.track == c.track else { return }
@@ -1232,6 +1292,12 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
     func backendVideoSize(_ size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
+        // A picture after all (an HLS stream lists no tracks until it plays, so it first looked audio-only)
+        if audioOnly {
+            audioOnly = false
+            waveformPending = false
+            refreshBackdrop()
+        }
         nativeSize = size
         setAspect(size.width / size.height)
     }
@@ -1318,6 +1384,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
 
     /// `d` is trackpad points (or wheel notches ×10). Faster for long videos.
     private func scrollScrub(_ d: Double) {
+        if backend?.isLive == true { refuseLiveSeek(); return }
         guard let b = backend, b.duration > 0 else { return }
         let perPoint = max(0.15, b.duration / 2000)
         var t = (scrollTarget ?? b.currentTime) + d * perPoint
@@ -1349,6 +1416,11 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     }
 
     private func scrubTo(fraction f: CGFloat, finished: Bool) {
+        if backend?.isLive == true {
+            overlay.axis = .horizontal; overlay.fraction = 1; overlay.text = "Live"
+            if finished { overlay.hide() }
+            return
+        }
         guard let b = backend, b.duration > 0 else {
             overlay.axis = .horizontal; overlay.fraction = 0; overlay.text = "Can't seek"
             if finished { overlay.hide() }
@@ -1474,9 +1546,32 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         let p = NSOpenPanel()
         p.allowsMultipleSelection = true
         p.canChooseDirectories = true
-        p.allowedContentTypes = [.audiovisualContent, .folder, .reelPlaylist, .json]
+        p.allowedContentTypes = [.audiovisualContent, .folder, .reelPlaylist, .json, .playlist]   // .playlist: M3U / PLS
         p.beginSheetModal(for: window) { r in
             if r == .OK { self.panel.add(files: p.urls, at: nil, playFirst: true) }
+        }
+    }
+
+    /// File ▸ Open Location…: type or paste a link (a video, a stream such as rtsp:// or an .m3u8, or a list
+    /// of them) and it plays now, like dropping it on the video. Starts with the clipboard's link, if it has one.
+    @objc func openLocation(_ sender: Any?) {
+        let a = NSAlert()
+        a.messageText = "Open Location"
+        a.informativeText = "A link to a video or a stream: HLS (.m3u8), DASH (.mpd), RTSP, RTMP, UDP or RTP — or a channel list (.m3u)."
+        a.addButton(withTitle: "Play")
+        a.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 340, height: 24))
+        field.placeholderString = "rtsp://camera.local/stream"
+        let clip = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !clip.contains("\n"), MediaResolver.linkCount(in: clip) == 1 { field.stringValue = clip }
+        a.accessoryView = field
+        a.window.initialFirstResponder = field
+        a.beginSheetModal(for: window) { r in
+            guard r == .alertFirstButtonReturn else { return }
+            let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !self.playLoose(text: text) {
+                self.toast.show("That isn't a link Reel can open", symbol: "exclamationmark.triangle.fill", sticky: false)
+            }
         }
     }
 
@@ -1533,7 +1628,12 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
             if !lists.isEmpty { panel.askAboutPlaylist(.files(lists), at: nil, onVideo: true); return true }   // play / save / add?
             open(files: files); return true
         }
-        let text = PlaylistPanel.pasteboardText(pb)
+        return playLoose(text: PlaylistPanel.pasteboardText(pb))
+    }
+
+    /// Links (videos, streams, lists of them) play now, without being added to a playlist.
+    @discardableResult
+    func playLoose(text: String) -> Bool {
         let n = MediaResolver.linkCount(in: text)
         guard n > 0 else { return false }
         let ytLists = MediaResolver.youtubePlaylistLinks(in: text)

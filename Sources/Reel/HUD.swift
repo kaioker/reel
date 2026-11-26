@@ -81,6 +81,9 @@ final class BarSlider: NSView {
 final class TitleOverlay: NSView {
     let label = NSTextField(labelWithString: "")
     private let grad = CAGradientLayer()
+    /// A red LIVE tag beside the title while a live stream plays.
+    private let liveTag = NSTextField(labelWithString: "LIVE")
+    var live = false { didSet { if live != oldValue { liveTag.isHidden = !live; needsLayout = true } } }
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
@@ -92,6 +95,14 @@ final class TitleOverlay: NSView {
         label.alignment = .center
         label.lineBreakMode = .byTruncatingTail
         addSubview(label)
+        liveTag.font = .systemFont(ofSize: 9, weight: .bold)
+        liveTag.textColor = .white
+        liveTag.alignment = .center
+        liveTag.wantsLayer = true
+        liveTag.layer?.backgroundColor = NSColor.systemRed.cgColor
+        liveTag.layer?.cornerRadius = 3
+        liveTag.isHidden = true
+        addSubview(liveTag)
     }
     required init?(coder: NSCoder) { fatalError() }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -102,6 +113,14 @@ final class TitleOverlay: NSView {
         CATransaction.commit()
         label.frame = NSRect(x: 80, y: bounds.height - 22, width: max(0, bounds.width - 160), height: 16)
         label.isHidden = bounds.width < 220
+        if live {
+            // the tag sits just before the title; the pair stays centred
+            let tagW: CGFloat = 30, gap: CGFloat = 6
+            label.frame = NSRect(x: 80 + (tagW + gap) / 2, y: label.frame.minY, width: max(0, label.frame.width - tagW - gap), height: 16)
+            let textW = min(label.attributedStringValue.size().width + 4, label.frame.width)
+            liveTag.frame = NSRect(x: label.frame.midX - textW / 2 - gap - tagW, y: label.frame.minY + 1, width: tagW, height: 14)
+            liveTag.isHidden = label.isHidden
+        }
     }
 }
 

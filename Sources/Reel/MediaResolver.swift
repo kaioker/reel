@@ -17,6 +17,8 @@ enum MediaResolver {
                 where isMedia(f) {
                     out.append(localTrack(f))
                 }
+            } else if url.isFileURL, isPlaylistList(url) {
+                if let text = readText(url) { out += tracks(forList: text, base: url, hlsTitle: url.deletingPathExtension().lastPathComponent) }
             } else if url.isFileURL {
                 out.append(localTrack(url))
             }
@@ -79,9 +81,141 @@ enum MediaResolver {
             }
             return []
         }
-        let name = url.deletingPathExtension().lastPathComponent.removingPercentEncoding ?? url.lastPathComponent
-        return [Track(kind: .remote, source: url.absoluteString,
-                      autoTitle: name.isEmpty ? (url.host ?? url.absoluteString) : name)]
+        if isStreamScheme(url) { return [streamTrack(url)] }
+        // A link to an .m3u / .m3u8 / .pls: either an HLS stream (one track) or a list of streams / files
+        // (an IPTV channel list, a radio station's .pls) — the text says which.
+        if isPlaylistList(url), let data = await get(url, limit: 32 << 20), let text = decodeText(data) {
+            let found = tracks(forList: text, base: url, hlsTitle: title(for: url))
+            if !found.isEmpty { return found }
+        }
+        return [Track(kind: .remote, source: url.absoluteString, autoTitle: title(for: url))]
+    }
+
+    // MARK: Streams and stream lists
+
+    /// Network protocols played by Reel's own decoder (http/https streams go to macOS's player first).
+    static let streamSchemes: Set<String> = ["rtsp", "rtsps", "rtmp", "rtmps", "rtmpt", "rtmpts", "udp", "rtp"]
+    static func isStreamScheme(_ url: URL) -> Bool { streamSchemes.contains(url.scheme?.lowercased() ?? "") }
+
+    /// A name for a link: the file name without its extension — or, for the stock names streams use
+    /// (index.m3u8, playlist.m3u8, manifest.mpd …), the folder it's in, else the host.
+    static func title(for url: URL) -> String {
+        let generic: Set<String> = ["", "/", "index", "playlist", "master", "manifest", "chunklist", "stream", "live",
+                                    "video", "mono", "prog_index", "hls", "dash", "media", "main"]
+        let parts = url.deletingPathExtension().pathComponents.map { $0.removingPercentEncoding ?? $0 }
+        if let name = parts.reversed().first(where: { !generic.contains($0.lowercased()) }) { return name }
+        if let h = url.host, !h.isEmpty { return h }
+        // udp://@:1234 — listening on a port
+        return url.port.map { "\((url.scheme ?? "").uppercased()) port \($0)" } ?? url.absoluteString
+    }
+
+    /// rtsp:// rtmp:// udp:// … — a camera, a broadcast or a multicast channel: live by nature.
+    static func streamTrack(_ url: URL, name: String? = nil) -> Track {
+        var t = Track(kind: .remote, source: url.absoluteString, autoTitle: name ?? title(for: url))
+        t.live = true
+        return t
+    }
+
+    static func isPlaylistList(_ url: URL) -> Bool {
+        if ["m3u", "m3u8", "pls"].contains(url.pathExtension.lowercased()) { return true }
+        // IPTV providers' list links: …/get.php?username=…&type=m3u_plus
+        let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        return q.contains { $0.name.lowercased() == "type" && ($0.value ?? "").lowercased().hasPrefix("m3u") }
+    }
+
+    private static func readText(_ url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return decodeText(data)
+    }
+    /// .m3u8 is UTF-8; plain .m3u is often Latin-1 (Winamp era).
+    private static func decodeText(_ data: Data) -> String? {
+        String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
+    }
+
+    /// An HLS playlist (it describes one stream's segments or variants, not a list of things to play).
+    static func isHLS(_ text: String) -> Bool {
+        ["#EXT-X-TARGETDURATION", "#EXT-X-STREAM-INF", "#EXT-X-MEDIA-SEQUENCE", "#EXT-X-PLAYLIST-TYPE", "#EXT-X-MAP", "#EXT-X-KEY"]
+            .contains { text.contains($0) }
+    }
+
+    /// The tracks in an M3U / M3U8 / PLS list. An HLS playlist is one stream: the list itself, as one track.
+    static func tracks(forList text: String, base: URL, hlsTitle: String) -> [Track] {
+        if isHLS(text) { return [Track(kind: base.isFileURL ? .local : .remote, source: base.absoluteString, autoTitle: hlsTitle)] }
+        let entries = text.range(of: "[playlist]", options: [.caseInsensitive, .anchored]) != nil
+            || text.lowercased().contains("\nfile1=") ? parsePLS(text) : parseM3U(text)
+        return entries.compactMap { e in
+            guard let u = resolve(e.location, base: base) else { return nil }
+            var t: Track
+            if u.isFileURL {
+                t = Track(kind: .local, source: u.absoluteString, autoTitle: u.deletingPathExtension().lastPathComponent)
+            } else if isStreamScheme(u) {
+                t = streamTrack(u)
+            } else if ["http", "https"].contains(u.scheme?.lowercased() ?? "") {
+                t = Track(kind: .remote, source: u.absoluteString, autoTitle: title(for: u))
+            } else { return nil }
+            if let n = e.title?.trimmingCharacters(in: .whitespaces), !n.isEmpty { t.autoTitle = n }
+            if let d = e.duration, d > 0 { t.duration = d }
+            return t
+        }
+    }
+
+    struct ListEntry { var location: String; var title: String?; var duration: Double? }
+
+    /// Extended M3U: `#EXTINF:<seconds> [attributes],<title>` then the location. Plain M3U: just locations.
+    static func parseM3U(_ text: String) -> [ListEntry] {
+        var out: [ListEntry] = []
+        var title: String?, duration: Double?
+        for raw in text.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\u{FEFF}"))
+            if line.isEmpty { continue }
+            if line.uppercased().hasPrefix("#EXTINF:") {
+                let info = String(line.dropFirst(8))
+                // the title follows the first comma that isn't inside an attribute's quotes
+                var inQuotes = false, comma: String.Index?
+                for i in info.indices {
+                    if info[i] == "\"" { inQuotes.toggle() } else if info[i] == ",", !inQuotes { comma = i; break }
+                }
+                let head = comma.map { String(info[..<$0]) } ?? info
+                duration = Double(head.split(separator: " ").first.map(String.init) ?? "")
+                title = comma.map { String(info[info.index(after: $0)...]) }
+                if title?.trimmingCharacters(in: .whitespaces).isEmpty != false,
+                   let m = head.firstMatch(of: #/tvg-name="([^"]*)"/#) { title = String(m.1) }
+                continue
+            }
+            if line.hasPrefix("#") { continue }
+            out.append(ListEntry(location: line, title: title, duration: duration))
+            title = nil; duration = nil
+        }
+        return out
+    }
+
+    /// PLS (internet radio): `FileN=`, `TitleN=`, `LengthN=`.
+    static func parsePLS(_ text: String) -> [ListEntry] {
+        var files: [Int: String] = [:], titles: [Int: String] = [:], lengths: [Int: Double] = [:]
+        for raw in text.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard let eq = line.firstIndex(of: "="),
+                  let m = line[..<eq].lowercased().firstMatch(of: #/^(file|title|length)(\d+)$/#), let n = Int(m.2) else { continue }
+            let v = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+            switch m.1 { case "file": files[n] = v; case "title": titles[n] = v; default: lengths[n] = Double(v) }
+        }
+        return files.keys.sorted().map { ListEntry(location: files[$0]!, title: titles[$0], duration: lengths[$0]) }
+    }
+
+    /// A list entry's location: a full link, or a path relative to the list (Windows-style too).
+    private static func resolve(_ location: String, base: URL) -> URL? {
+        let loc = location.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        if loc.contains("://"), let u = URL(string: loc) ?? URL(string: loc.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "") {
+            return u
+        }
+        if base.isFileURL {
+            let path = loc.replacingOccurrences(of: "\\", with: "/")
+            if path.hasPrefix("/") { return URL(fileURLWithPath: path) }
+            if path.hasPrefix("~") { return URL(fileURLWithPath: (path as NSString).expandingTildeInPath) }
+            return URL(fileURLWithPath: path, relativeTo: base.deletingLastPathComponent()).standardizedFileURL
+        }
+        return URL(string: loc, relativeTo: base)?.absoluteURL
+            ?? loc.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed).flatMap { URL(string: $0, relativeTo: base)?.absoluteURL }
     }
 
     // MARK: Helpers
@@ -107,8 +241,10 @@ enum MediaResolver {
             guard known.contains(where: { lower.hasPrefix($0) }) else { return nil }
             str = "https://" + str
         }
-        guard let u = URL(string: str), let scheme = u.scheme?.lowercased(),
-              ["http", "https"].contains(scheme), let host = u.host, host.contains(".") else { return nil }
+        guard let u = URL(string: str), let scheme = u.scheme?.lowercased() else { return nil }
+        // Streams: cameras and multicast addresses often have no dots (rtsp://nvr/…, udp://@:1234)
+        if streamSchemes.contains(scheme) { return u.host != nil || u.port != nil ? u : nil }
+        guard ["http", "https"].contains(scheme), let host = u.host, host.contains(".") else { return nil }
         return u
     }
 
@@ -125,6 +261,7 @@ enum MediaResolver {
             let page = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "p" }?.value ?? "1"
             return Track(kind: .bilibili, source: "\(m.1)|0|\(page)", autoTitle: name)   // part id looked up when played
         }
+        if isStreamScheme(u) { return streamTrack(u, name: name) }
         guard let scheme = u.scheme?.lowercased(), ["http", "https"].contains(scheme) else { return nil }
         return Track(kind: .remote, source: u.absoluteString, autoTitle: name)
     }
@@ -260,8 +397,10 @@ enum MediaResolver {
                 let lock = NSLock()
                 var duration = 0.0
                 err.fileHandleForReading.readabilityHandler = { h in
-                    guard let text = String(data: h.availableData, encoding: .utf8),
-                          let m = text.firstMatch(of: #/Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/#) else { return }
+                    guard let text = String(data: h.availableData, encoding: .utf8) else { return }
+                    // no length: a live stream, which would never finish converting (and would fill the disk)
+                    if text.contains("Duration: N/A") { p.terminate(); return }
+                    guard let m = text.firstMatch(of: #/Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/#) else { return }
                     let d = (Double(m.1) ?? 0) * 3600 + (Double(m.2) ?? 0) * 60 + (Double(m.3) ?? 0)
                     lock.lock(); if duration == 0 { duration = d }; lock.unlock()
                 }
@@ -332,6 +471,23 @@ enum MediaResolver {
     }
 
     private static let ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+
+    /// Downloads a list (M3U / PLS), giving up past `limit` bytes so a link to something huge isn't pulled in.
+    private static func get(_ url: URL, limit: Int) async -> Data? {
+        var req = URLRequest(url: url, timeoutInterval: 20)
+        req.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+        guard let (bytes, response) = try? await URLSession.shared.bytes(for: req),
+              (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true,
+              response.expectedContentLength <= Int64(limit) else { return nil }
+        var data = Data()
+        do {
+            for try await b in bytes {
+                data.append(b)
+                if data.count > limit { return nil }
+            }
+        } catch { return nil }
+        return data
+    }
 
     private static func get(_ url: URL) async -> Data? {
         var req = URLRequest(url: url)

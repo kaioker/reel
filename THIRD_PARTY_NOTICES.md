@@ -3,8 +3,8 @@
 Reel.app includes **FFmpeg** in two forms:
 
 - **Decoding libraries** in `Reel.app/Contents/Frameworks` (`libavformat`, `libavcodec`, `libavutil`,
-  `libswscale`, `libswresample`) — Reel's in-app decoder uses them to play transparent WebM and videos
-  macOS can't decode, straight away. They're separate, dynamically linked files you may replace with your
+  `libswscale`, `libswresample`) — Reel's in-app decoder uses them to play transparent WebM, videos
+  macOS can't decode and live streams (DASH, RTSP, RTMP, UDP / RTP, MPEG-TS), straight away. They're separate, dynamically linked files you may replace with your
   own builds of the same versions (built by [`scripts/build-ffmpeg-libs.sh`](scripts/build-ffmpeg-libs.sh)).
 - A small **`ffmpeg` program** at `Reel.app/Contents/Helpers/ffmpeg`, used only as a last resort to
   convert a video the in-app decoder can't handle. It runs as a separate program
@@ -16,6 +16,8 @@ Reel.app includes **FFmpeg** in two forms:
   non-free components.
 - Source: https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz — built with the exact options in the two scripts
   above, which rebuild everything from that source.
+- `libavformat` reads DASH manifests with **libxml2**, the copy that's part of macOS (`/usr/lib/libxml2.2.dylib`);
+  Reel doesn't ship one.
 
 ## libvpx (statically linked into the bundled ffmpeg and libavcodec)
 - Version 1.17.0, the WebM project, https://chromium.googlesource.com/webm/libvpx
