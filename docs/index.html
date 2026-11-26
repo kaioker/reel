@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Reel Media Player — a tiny, always-on-top video player for Mac</title>
-  <meta name="description" content="Reel is a free, tiny, always-on-top video player for Mac: all picture, no clutter. Playlists, YouTube, subtitles, transparent video and more.">
+  <meta name="description" content="Reel is a free, tiny, always-on-top video player for Mac: all picture, no clutter. Playlists, YouTube, live streams, subtitles, transparent video and more.">
   <meta name="theme-color" content="#7a3cf0">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Reel Media Player">
@@ -120,6 +120,7 @@
         <ul class="ticks">
           <li><b>Shuffle, loop, skip</b> and <b>play next</b> for every track.</li>
           <li><b>Search as you type</b> and sort by title or length.</li>
+          <li><b>Track volume:</b> level a loud track against the rest of the album, a few dB up or down. It goes along when you share the playlist.</li>
           <li><b>Share playlists as <code>.reel</code> files.</b> A friend double-clicks one and it just plays; one click saves it.</li>
         </ul>
       </div>
@@ -144,6 +145,7 @@
         <ul class="ticks">
           <li><b>YouTube playlists and <code>.reel</code> files ask first:</b> play without saving, save as a new playlist, or add to the one you're viewing.</li>
           <li><b>Anything playing that isn't in a playlist</b> gets an <b>Add</b> button.</li>
+          <li><b>Channel and radio lists</b> (<code>.m3u</code>, <code>.pls</code>) come in as tracks, named from the list. Got a camera's address? <kbd>⇧⌘O</kbd> opens it.</li>
         </ul>
       </div>
     </div>
@@ -187,7 +189,7 @@
     <div class="wrap">
       <div class="center-head">
         <p class="kicker k-violet">Plays almost anything</p>
-        <h2>Files, links, YouTube. Even see-through video.</h2>
+        <h2>Files, streams, YouTube. Even see-through video.</h2>
         <p class="sub">Formats macOS can't play go through Reel's built-in decoder, using your Mac's video hardware.
           Nothing to convert, nothing else to install.</p>
       </div>
@@ -196,12 +198,12 @@
         <div class="fmt f2"><b>MKV · WebM · AVI</b><span>with every audio track</span></div>
         <div class="fmt f3"><b>Transparent WebM</b><span>floats over your desktop</span></div>
         <div class="fmt f4"><b>YouTube</b><span>videos and whole playlists</span></div>
-        <div class="fmt f5"><b>Links &amp; HLS</b><span>direct video and live streams</span></div>
+        <div class="fmt f5"><b>HLS · RTSP · RTMP</b><span>live TV, cameras, radio and more</span></div>
         <div class="fmt f6"><b>MP3 · FLAC · WAV</b><span>audio with a waveform</span></div>
       </div>
       <div class="menus">
         <p class="menus-label">Everything's one right-click away</p>
-        <img src="assets/menu-video.png?v=10721d9b" width="413" height="42" loading="lazy" alt="Reel's right-click menu on the video: play, loop, shuffle, skip, rename, show in Finder, subtitles, AirPlay, then on top, playlist, add, paste and full screen">
+        <img src="assets/menu-video.png?v=c7a618f9" width="443" height="42" loading="lazy" alt="Reel's right-click menu on the video: play, loop, shuffle, skip, rename, show in Finder, track volume, subtitles, AirPlay, then on top, playlist, add, paste and full screen">
       </div>
     </div>
   </section>
@@ -226,6 +228,10 @@
         <div><kbd>M</kbd><span>Mute</span></div>
         <div><kbd>F</kbd><span>Full screen</span></div>
         <div><kbd>⌘P</kbd><span>Show the playlist</span></div>
+        <div><kbd>⌥⌘↑</kbd><kbd>⌥⌘↓</kbd><span>This track louder / quieter</span></div>
+        <div><kbd>⌘V</kbd><span>Paste where the pointer is</span></div>
+        <div><kbd>⌘F</kbd><span>Search the playlist</span></div>
+        <div><kbd>⇧⌘O</kbd><span>Open a stream's address</span></div>
       </div>
     </div>
   </section>
