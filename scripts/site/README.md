@@ -29,3 +29,13 @@ with its window on a chosen display (`REEL_SCREEN=<part of the display's name>`)
 Drawn as SVG (`#lockup` in `index.html`) so the text lines up with the icon exactly: the icon is 100 units
 tall, Roboto Slab's cap height is 0.7109 em, so a font size of 140.65 puts the capitals' tops on the icon's
 top edge and the baseline (y = 100) on its bottom edge. `overflow: visible` lets the "y" hang below.
+
+## Publishing
+
+After changing anything in `docs/assets/`, run `scripts/site/stamp-assets.sh` before committing. It stamps each
+`assets/…` link in the page with `?v=` and a hash of the file, so a browser fetches the page, its stylesheet and
+its pictures as a matching set. GitHub Pages lets browsers keep each file for 10 minutes, so without the stamp a
+reload just after publishing can show the new page with the old stylesheet.
+
+To check the live page in Safari's engine at any width:
+`.build/render-card https://kaioker.github.io/reel/ page.png <width> 0` (height 0 renders the whole page).
