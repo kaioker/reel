@@ -1103,7 +1103,7 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
         DispatchQueue.main.asyncAfter(deadline: .now() + t, execute: w)
     }
 
-    /// ⇧↑ / ⇧↓: the previous / next playlist, starting its first track (paused if you were paused).
+    /// ⌘↑ / ⌘↓: the previous / next playlist, starting its first track (paused if you were paused).
     func switchPlaylist(_ delta: Int) {
         let all = Library.shared.playlists
         guard all.count > 1, let i = all.firstIndex(where: { $0.id == panel.shownID }) else { return }
@@ -1391,28 +1391,34 @@ final class PlayerController: NSObject, NSWindowDelegate, BackendDelegate, Playl
     // MARK: Keyboard
 
     private func handleKey(_ e: NSEvent) -> NSEvent? {
+        // REEL_DEBUG only: Reel's hotkeys, never what's typed into its text fields.
+        if debugLog, HoverHotkeys.hotkeyCodes.contains(e.keyCode), !((window.firstResponder as? NSTextView)?.isEditable ?? false) { print("focused key \(e.keyCode): inPlayer=\(e.window === window) responder=\(String(describing: window.firstResponder.map { type(of: $0) }))"); fflush(stdout) }
         guard e.window === window else { return e }
         // Typing in the URL box or renaming something: let the text field have the keys.
         if let tv = window.firstResponder as? NSTextView, tv.isEditable { return e }
         let mods = e.modifierFlags.intersection([.command, .control, .option])
-        if !mods.isEmpty { return e }
-        return performHotkey(keyCode: e.keyCode, shift: e.modifierFlags.contains(.shift),
+        let command = mods == .command && (123...126).contains(e.keyCode)   // ⌘-arrows are Reel's too
+        if !mods.isEmpty && !command { return e }
+        return performHotkey(keyCode: e.keyCode, command: command, shift: e.modifierFlags.contains(.shift),
                              chars: e.charactersIgnoringModifiers) ? nil : e
     }
 
     /// Reel's hotkeys. Used when Reel is focused, and by HoverHotkeys when the mouse is over it.
     /// Returns false if the key isn't one of Reel's (so it goes on to wherever it was headed).
     @discardableResult
-    func performHotkey(keyCode: UInt16, shift: Bool, chars: String?) -> Bool {
-        if shift {
+    func performHotkey(keyCode: UInt16, command: Bool, shift: Bool, chars: String?) -> Bool {
+        let arrow = (123...126).contains(keyCode)
+        if command {
             switch keyCode {
-            case 123: prevTrack(); return true          // ⇧←
-            case 124: nextTrack(); return true          // ⇧→
-            case 126: switchPlaylist(-1); return true   // ⇧↑
-            case 125: switchPlaylist(1); return true    // ⇧↓
-            default: break
+            case 123: prevTrack()                       // ⌘←
+            case 124: nextTrack()                       // ⌘→
+            case 126: switchPlaylist(-1)                // ⌘↑
+            case 125: switchPlaylist(1)                 // ⌘↓
+            default: return false
             }
+            return true
         }
+        if shift && arrow { return false }              // ⇧-arrows aren't Reel's (they select text elsewhere)
         switch keyCode {
         case 123: skip(-10)                // ←
         case 124: skip(10)                 // →

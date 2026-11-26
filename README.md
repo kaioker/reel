@@ -73,7 +73,7 @@ double-clicking a file in Finder opens it in Reel.
 - A collapsible playlist slides out beside the video (⌘P, or the blue dot next to the window buttons). Opening it
   always shows what's playing.
 - As many playlists as you like. Click the playlist's name, or swipe sideways with two fingers, to slide over to
-  all of them. Picking one shows it without interrupting what's playing. ⇧↑ / ⇧↓ switch from the keyboard.
+  all of them. Picking one shows it without interrupting what's playing. ⌘↑ / ⌘↓ switch from the keyboard.
 - Right-click a playlist to rename, export, show in Finder, clear or delete it. Drag to reorder.
 - Each playlist is saved as a `.reel` file in `~/Library/Application Support/Reel/Playlists`, easy to back up or copy.
 - **Shuffle**, per-track loop, play next, rename, and **skip**: struck-through tracks stay in the list, but playback
@@ -92,8 +92,8 @@ double-clicking a file in Finder opens it in Reel.
 | Double-click | Full screen |
 | Space | Play / pause |
 | ← → | Back / forward 10 seconds |
-| ↑ ↓ or ⇧← ⇧→ | Previous / next track |
-| ⇧↑ ⇧↓ | Previous / next playlist |
+| ↑ ↓ or ⌘← ⌘→ | Previous / next track |
+| ⌘↑ ⌘↓ | Previous / next playlist |
 | L · S · M · F | Loop track · shuffle · mute · full screen |
 | [ · ] · = | Slower · faster · normal speed (¼× to 2×) |
 | , · . | One frame back · forward |

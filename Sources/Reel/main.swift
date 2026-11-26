@@ -25,10 +25,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         player.showWindow()
         // Hotkeys while the mouse is over Reel, even when another app is active (needs Accessibility).
         hoverHotkeys = HoverHotkeys(player: player)
-        let testingLaunch = ProcessInfo.processInfo.environment.keys.contains(where: { $0.hasPrefix("REEL_") })
+        let testingLaunch = ProcessInfo.processInfo.environment.keys.contains(where: { $0.hasPrefix("REEL_") && $0 != "REEL_DEBUG" })
         // Never chosen either way: wait quietly, since allowing Reel in Accessibility switches it on.
         let hoverUnset = UserDefaults.standard.object(forKey: "hoverHotkeys") == nil
-        if (Prefs.hoverHotkeys || hoverUnset) && (!testingLaunch || ProcessInfo.processInfo.environment["REEL_HOVER_INSTALL_TEST"] != nil) {
+        if (Prefs.hoverHotkeys || hoverUnset) && (!testingLaunch || ProcessInfo.processInfo.environment["REEL_HOVER_INSTALL_TEST"] != nil
+                                                    || ProcessInfo.processInfo.environment["REEL_HOVER_LIVE_TEST"] != nil
+                                                    || ProcessInfo.processInfo.environment["REEL_CMDKEY_TEST"] != nil) {
             hoverHotkeys?.start()
             if !hoverUnset && !HoverHotkeys.isTrusted { noteHoverPermissionMissing() }
         }
@@ -347,7 +349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let pl = self.player!, panel = pl.panel
             func playing() -> String { pl.nowPlayingTrackID.flatMap { id in Library.shared.playlists.flatMap(\.tracks).first { $0.id == id }?.displayName } ?? (pl.nowPlayingTrackID == nil ? "-" : "(opened file)") }
             func key(_ code: UInt16) {
-                let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.shift], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: pl.window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)!
+                let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: pl.window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)!
                 NSApp.sendEvent(e)
             }
             var steps: [(Double, () -> Void)] = []
@@ -364,9 +366,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }))
             steps.append((0.8, { print("   after paste: playlist open \(pl.panelOpen), selected row \(panel.table.selectedRow) of \(panel.tracks.count) in “\(Library.shared.playlist(panel.shownID)!.name)”") }))
             steps.append((0.3, { key(125) }))
-            steps.append((0.5, { print("3. ⇧↓ → showing “\(Library.shared.playlist(panel.shownID)!.name)”, playing \(playing())"); key(124) }))
-            steps.append((0.5, { print("   ⇧→ → playing \(playing())"); key(126) }))
-            steps.append((0.5, { print("   ⇧↑ → showing “\(Library.shared.playlist(panel.shownID)!.name)”") }))
+            steps.append((0.5, { print("3. ⌘↓ → showing “\(Library.shared.playlist(panel.shownID)!.name)”, playing \(playing())"); key(124) }))
+            steps.append((0.5, { print("   ⌘→ → playing \(playing())"); key(126) }))
+            steps.append((0.5, { print("   ⌘↑ → showing “\(Library.shared.playlist(panel.shownID)!.name)”") }))
             steps.append((0.1, { Task { @MainActor in
                 print("4. YouTube playlist title:", await MediaResolver.youtubePlaylistTitle("PL0BAFA2DA294B0900") ?? "nil")
                 print("   playlist links found in a paste:", MediaResolver.youtubePlaylistLinks(in: "see https://www.youtube.com/watch?v=dhzPnX07jAs&list=PL0BAFA2DA294B0900 and https://youtu.be/abc").map { "\($0.video ?? "-")/\($0.list)" })
@@ -797,6 +799,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 print("hover hook installed:", self.hoverHotkeys?.isActive == true ? "yes" : "no"); fflush(stdout); NSApp.terminate(nil)
             }
         }
+        // ⌘-arrow hotkeys end to end: REEL_CMDKEY_TEST=<folder with a.mp4 b.mp4 c.mp4>. Focused keys go through
+        // the event queue (the real key handler); then the same ⌘→ from the background through the hover hook.
+        if let dir = ProcessInfo.processInfo.environment["REEL_CMDKEY_TEST"] {
+            let pl = self.player!, panel = pl.panel, lib = Library.shared
+            func clip(_ n: String) -> URL { URL(fileURLWithPath: dir).appendingPathComponent(n + ".mp4") }
+            func playing() -> String { pl.nowPlayingTrackID.flatMap { id in lib.playlists.flatMap(\.tracks).first { $0.id == id }?.displayName } ?? "-" }
+            func shown() -> String { lib.playlist(panel.shownID)?.name ?? "?" }
+            func key(_ code: UInt16, _ mods: NSEvent.ModifierFlags) {
+                NSApp.postEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: mods, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: pl.window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)!, atStart: false)
+            }
+            NSApp.activate(ignoringOtherApps: true); pl.window.makeKeyAndOrderFront(nil)
+            let first = panel.shownID
+            let second = lib.addPlaylist(named: "Second")
+            panel.show(playlist: second.id); panel.add(files: [clip("c")], at: nil)
+            panel.show(playlist: first); panel.add(files: [clip("a"), clip("b")], at: nil, playFirst: true)
+            var steps: [(Double, () -> Void)] = [
+                (2.0, { print("start: showing \(shown()), playing \(playing())"); key(124, .command) }),
+                (1.0, { print("⌘→ → \(playing())   (want b)"); key(123, .command) }),
+                (1.0, { print("⌘← → \(playing())   (want a)"); key(124, .shift) }),
+                (1.0, { print("⇧→ → \(playing()), t=\(Int(pl.debugCurrentTime))   (want a, no jump)"); key(124, []) }),
+                (1.0, { print("→  → t=\(Int(pl.debugCurrentTime))   (want about 10+)"); key(125, .command) }),
+                (1.0, { print("⌘↓ → showing \(shown()), playing \(playing())   (want Second, c)"); key(126, .command) }),
+                (1.0, { print("⌘↑ → showing \(shown()), playing \(playing())   (want first playlist, a)")
+                    NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
+                    let w = pl.window, mainH = NSScreen.screens.first?.frame.height ?? 0
+                    CGWarpMouseCursorPosition(CGPoint(x: w.frame.midX, y: mainH - w.frame.midY)) }),
+                (1.0, { print("background: Reel active \(NSApp.isActive), pointer over Reel \(pl.isPointerOverPlayer()), hook \(self.hoverHotkeys?.isActive == true)")
+                    let src = CGEventSource(stateID: .hidSystemState)
+                    for down in [true, false] { let k = CGEvent(keyboardEventSource: src, virtualKey: 124, keyDown: down); k?.flags = .maskCommand; k?.post(tap: .cghidEventTap) } }),
+                (1.0, { print("hover ⌘→ → \(playing())   (want b)")
+                    // with REEL_DEBUG these two must NOT be logged: a non-hotkey over Reel, and a hotkey elsewhere
+                    print("-- sending A over Reel, then → away from Reel"); fflush(stdout)
+                    let src = CGEventSource(stateID: .hidSystemState)
+                    for down in [true, false] { CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: down)?.post(tap: .cghidEventTap) }
+                    let w = pl.window, mainH = NSScreen.screens.first?.frame.height ?? 0
+                    let away = NSScreen.screens.first!.frame.contains(NSPoint(x: w.frame.minX - 60, y: w.frame.midY)) ? w.frame.minX - 60 : w.frame.maxX + 60
+                    CGWarpMouseCursorPosition(CGPoint(x: away, y: mainH - w.frame.midY))
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        for down in [true, false] { CGEvent(keyboardEventSource: src, virtualKey: 124, keyDown: down)?.post(tap: .cghidEventTap) }
+                    } }),
+                (1.0, { print("-- done"); fflush(stdout); NSApp.terminate(nil) }),
+            ]
+            func run() {
+                guard !steps.isEmpty else { return }
+                let (wait, f) = steps.removeFirst()
+                DispatchQueue.main.asyncAfter(deadline: .now() + wait) { f(); run() }
+            }
+            run()
+        }
+        // Live check of the real key hook: Reel in the background, pointer over it, a real → key press.
+        if ProcessInfo.processInfo.environment["REEL_HOVER_LIVE_TEST"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                let w = self.player.window
+                print("hook installed: \(self.hoverHotkeys?.isActive == true) · trusted: \(HoverHotkeys.isTrusted)")
+                NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
+                let before = NSEvent.mouseLocation
+                let mainH = NSScreen.screens.first?.frame.height ?? 0
+                let c = NSPoint(x: w.frame.midX, y: w.frame.midY)
+                CGWarpMouseCursorPosition(CGPoint(x: c.x, y: mainH - c.y))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    print("Reel active: \(NSApp.isActive) · pointer over Reel: \(self.player.isPointerOverPlayer())")
+                    let src = CGEventSource(stateID: .hidSystemState)
+                    let cmd = ProcessInfo.processInfo.environment["REEL_HOVER_LIVE_TEST"] == "cmd"
+                    let track0 = self.player.nowPlayingTrackID
+                    for down in [true, false] {
+                        let k = CGEvent(keyboardEventSource: src, virtualKey: 124, keyDown: down)
+                        if cmd { k?.flags = .maskCommand }
+                        k?.post(tap: .cghidEventTap)
+                    }
+                    if cmd { DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { print("⌘→ changed track: \(self.player.nowPlayingTrackID != track0)") } }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        CGWarpMouseCursorPosition(CGPoint(x: before.x, y: mainH - before.y))
+                        print("Reel handled hover keys: \(HoverHotkeys.handledCount)"); fflush(stdout); NSApp.terminate(nil)
+                    }
+                }
+            }
+        }
         if ProcessInfo.processInfo.environment["REEL_OPTIN_TEST"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 print("default setting: \(Prefs.hoverHotkeys ? "on" : "off") · hook installed: \(self.hoverHotkeys?.isActive == true)")
@@ -825,8 +904,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 ("Space over Reel, Slack active",         49, [], false, true,  true),
                 ("Space, mouse elsewhere",                49, [], false, false, false),
                 ("Space over Reel, Reel active",          49, [], true,  true,  false),
-                ("⇧→ over Reel",                          124, .maskShift, false, true, true),
-                ("⌘→ over Reel (left for the other app)", 124, .maskCommand, false, true, false),
+                ("⌘→ over Reel",                          124, .maskCommand, false, true, true),
+                ("⌘↑ over Reel",                          126, .maskCommand, false, true, true),
+                ("⇧→ over Reel (left for the other app)", 124, .maskShift, false, true, false),
+                ("⌘⇧→ over Reel (left for the other app)", 124, [.maskCommand, .maskShift], false, true, false),
+                ("⌥→ over Reel (left for the other app)", 124, .maskAlternate, false, true, false),
+                ("⌘L over Reel (left for the other app)", 37, .maskCommand, false, true, false),
+                ("⇧L over Reel",                          37, .maskShift, false, true, true),
                 ("letter A over Reel (not a hotkey)",     0,  [], false, true,  false),
                 ("L over Reel",                           37, [], false, true,  true),
             ]
@@ -1140,7 +1224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let a = NSAlert()
         a.messageText = "One more step"
-        a.informativeText = "To use Reel's hotkeys while the mouse is over it and another app is active, turn Reel on in System Settings → Privacy & Security → Accessibility. If Reel is already listed there and switched on, macOS is holding a permission from an older build: select Reel, remove it with −, then add it again with +.\n\nReel only acts on its own hotkeys (Space, arrows, ⇧-arrows, F, L, M, S, V, [ ] = , .), and only while the mouse is over its window."
+        a.informativeText = "To use Reel's hotkeys while the mouse is over it and another app is active, turn Reel on in System Settings → Privacy & Security → Accessibility. If Reel is already listed there and switched on, macOS is holding a permission from an older build: select Reel, remove it with −, then add it again with +.\n\nReel only acts on its own hotkeys (Space, arrows, ⌘-arrows, F, L, M, S, V, [ ] = , .), and only while the mouse is over its window."
         a.addButton(withTitle: "Open Settings"); a.addButton(withTitle: "Cancel")
         a.beginSheetModal(for: player.window) { r in
             guard r == .alertFirstButtonReturn else {
